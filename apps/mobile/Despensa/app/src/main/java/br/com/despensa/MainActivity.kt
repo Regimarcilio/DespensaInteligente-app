@@ -27,15 +27,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Contrast
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -65,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import br.com.despensa.data.local.prefs.ModoTema
 import br.com.despensa.data.local.prefs.TemaPrefs
+import br.com.despensa.domain.formatarReais
 import br.com.despensa.presentation.economia.EconomiaScreen
 import br.com.despensa.presentation.economia.EconomiaViewModel
 import br.com.despensa.presentation.estoque.EstoqueScreen
@@ -74,6 +79,7 @@ import br.com.despensa.presentation.header.PilulaStatus
 import br.com.despensa.presentation.lista.ListaScreen
 import br.com.despensa.presentation.lista.ListaViewModel
 import br.com.despensa.presentation.notif.PedidoPermissaoNotificacao
+import br.com.despensa.presentation.sobre.DialogoSobre
 import br.com.despensa.presentation.theme.DespensaTheme
 import br.com.despensa.presentation.theme.Dur
 import br.com.despensa.presentation.theme.LaranjaEcom
@@ -88,8 +94,9 @@ import kotlinx.coroutines.launch
 
 private enum class Aba(val rotulo: String, val icone: androidx.compose.ui.graphics.vector.ImageVector) {
     ESTOQUE("Estoque", Icons.Filled.Inventory),
-    LISTA("Lista", Icons.Filled.ShoppingCart),
-    ECONOMIA("R$", Icons.Filled.Savings)
+    // Paridade web v2.0 (BottomNav): "Lista Compras" e "Economia R$".
+    LISTA("Lista Compras", Icons.Filled.ShoppingCart),
+    ECONOMIA("Economia R$", Icons.Filled.Savings)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -117,9 +124,14 @@ class MainActivity : ComponentActivity() {
                 PedidoPermissaoNotificacao()
                 var aba by rememberSaveable { mutableStateOf(Aba.ESTOQUE) }
                 var mostrarDialogoTema by rememberSaveable { mutableStateOf(false) }
+                var mostrarSobre by rememberSaveable { mutableStateOf(false) }
                 val vmEstoque: EstoqueViewModel = hiltViewModel()
+                // Hoisted p/ o badge da aba Lista (mesmo owner = mesma instância
+                // que o ListaScreen usa; sem mudar escopo ou regra).
+                val vmLista: ListaViewModel = hiltViewModel()
                 val itens by vmEstoque.itens.collectAsState()
                 val contadores by vmEstoque.contadores.collectAsState()
+                val sugestoesLista by vmLista.sugestoes.collectAsState()
                 val calmo = lembrarMovimentoReduzido()
                 val escopo = rememberCoroutineScope()
 
@@ -132,9 +144,16 @@ class MainActivity : ComponentActivity() {
                 // Divider 1dp. Título Fraunces Bold (typography.titleLarge),
                 // sem glow. Subtítulo mantém AnimatedContent 200ms.
                 // issue #6: tituloAba textual sai — Logo é a marca em toda aba.
+                // Paridade web v2.0 (Navbar "Em estoque R$ X"): total vai no
+                // subtítulo — sem banner, forma Feira sólida mantida.
+                val valorEstoque = itens.sumOf {
+                    it.quantidade * (it.precoRef?.takeIf { p -> p > 0 } ?: 0.0)
+                }
                 val subtituloAba = when (aba) {
-                    Aba.ESTOQUE ->
-                        "${itens.size} ${if (itens.size == 1) "item" else "itens"} em estoque"
+                    Aba.ESTOQUE -> buildString {
+                        append("${itens.size} ${if (itens.size == 1) "item" else "itens"} em estoque")
+                        if (valorEstoque > 0) append(" • R$ ${formatarReais(valorEstoque)}")
+                    }
                     Aba.LISTA -> "Exporte para o ListaCompras"
                     Aba.ECONOMIA -> "Salvos vs perdidos no mês"
                 }
@@ -180,6 +199,21 @@ class MainActivity : ComponentActivity() {
                                             calmo = calmo
                                         )
                                         Spacer(Modifier.width(4.dp))
+                                        // Paridade web v2.0 (exemplo issue #1): Sobre com
+                                        // links repo + releases. PWA/GitHub-Sync OUT.
+                                        IconButton(
+                                            onClick = { mostrarSobre = true },
+                                            modifier = Modifier.semantics {
+                                                contentDescription =
+                                                    "Sobre o app: versão e links do GitHub"
+                                            }
+                                        ) {
+                                            Icon(
+                                                Icons.Filled.Info,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onBackground
+                                            )
+                                        }
                                         Box(contentAlignment = Alignment.Center) {
                                         IconButton(
                                             onClick = { mostrarDialogoTema = true },
@@ -227,10 +261,32 @@ class MainActivity : ComponentActivity() {
                                     selected = sel,
                                     onClick = { aba = destino },
                                     icon = {
-                                        Icon(
-                                            destino.icone,
-                                            contentDescription = destino.rotulo
-                                        )
+                                        // Paridade web v2.0 (badges BottomNav): vencidos
+                                        // no Estoque (laranja) e pendentes na Lista.
+                                        val badgeQtd = when (destino) {
+                                            Aba.ESTOQUE -> contadores.vencidos
+                                            Aba.LISTA -> sugestoesLista.size
+                                            Aba.ECONOMIA -> 0
+                                        }
+                                        if (badgeQtd > 0) {
+                                            BadgedBox(
+                                                badge = {
+                                                    Badge(
+                                                        containerColor = if (destino == Aba.ESTOQUE) LaranjaEcom else verdeNav
+                                                    ) { Text("$badgeQtd") }
+                                                }
+                                            ) {
+                                                Icon(
+                                                    destino.icone,
+                                                    contentDescription = destino.rotulo
+                                                )
+                                            }
+                                        } else {
+                                            Icon(
+                                                destino.icone,
+                                                contentDescription = destino.rotulo
+                                            )
+                                        }
                                     },
                                     // E10: label acesa quando selecionada
                                     // (Bold 12sp turquesa-maré × Medium onSurfaceVariant).
@@ -274,7 +330,6 @@ class MainActivity : ComponentActivity() {
                             when (abaAtual) {
                                 Aba.ESTOQUE -> EstoqueScreen(vmEstoque, escuro = escuro)
                                 Aba.LISTA -> {
-                                    val vmLista: ListaViewModel = hiltViewModel()
                                     ListaScreen(vmLista, escuro = escuro)
                                 }
                                 Aba.ECONOMIA -> {
@@ -300,6 +355,14 @@ class MainActivity : ComponentActivity() {
                         onFechar = { mostrarDialogoTema = false }
                     )
                 }
+
+                // Paridade web v2.0 (diálogo Sobre, exemplo da issue #1).
+                if (mostrarSobre) {
+                    DialogoSobre(
+                        escuro = escuro,
+                        onFechar = { mostrarSobre = false }
+                    )
+                }
             }
         }
     }
@@ -322,7 +385,17 @@ private fun DialogoTema(
         shape = RoundedCornerShape(28.dp),
         containerColor = MaterialTheme.colorScheme.surface,
         title = {
-            Text("Tema", style = MaterialTheme.typography.titleMedium)
+            // Paridade web v2.0 (ThemeDialog "Aparência do App" + X).
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Aparência do App",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onFechar) {
+                    Icon(Icons.Filled.Close, contentDescription = "Fechar")
+                }
+            }
         },
         text = {
             Column {

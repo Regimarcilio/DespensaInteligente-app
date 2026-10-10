@@ -45,4 +45,19 @@ interface BaixaDao {
     /** Tudo p/ backup JSON (issue #2): export espelha `EstoqueDao.listarTudo`. */
     @Query("SELECT * FROM baixa ORDER BY ts DESC")
     suspend fun listarTodas(): List<BaixaEntity>
+
+    /**
+     * Paridade web v2.0 (EconomiaView Histórico Recente + total acumulado):
+     * queries SOMENTE-leitura, sem migração — mesmo padrão dos fluxos do mês.
+     */
+    @Query("SELECT * FROM baixa ORDER BY ts DESC")
+    fun observarTodas(): Flow<List<BaixaEntity>>
+
+    /** Total R$ salvo acumulado (CONSUMIDO sem filtro de mês). */
+    @Query("SELECT COALESCE(SUM(valorTotal), 0.0) FROM baixa WHERE motivo = 'CONSUMIDO'")
+    fun salvosTotal(): Flow<Double>
+
+    /** Total R$ perdido acumulado (DESCARTADO sem filtro de mês). */
+    @Query("SELECT COALESCE(SUM(valorTotal), 0.0) FROM baixa WHERE motivo = 'DESCARTADO'")
+    fun perdidosTotal(): Flow<Double>
 }

@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.animateContentSize
@@ -33,15 +35,21 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -94,8 +102,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** Origem da sugestão (US06): o que você consumiu + o que vence em 7 dias. */
-enum class OrigemSugestao { CONSUMO, VALIDADE }
+/** Origem da sugestão (US06): o que você consumiu + o que vence em 7 dias + manual. */
+enum class OrigemSugestao { CONSUMO, VALIDADE, MANUAL }
 
 data class Sugestao(
     val nome: String,
@@ -159,14 +167,36 @@ class ListaViewModel @Inject constructor(
                 )
             }
         // Preserva marcação/qtd de quem já estava na tela ao recarregar.
+        // Paridade web v2.0 (ListaView): sugestão nova NASCE selecionada e item
+        // MANUAL sobrevive ao recarregar (estado em memória, sem tabela nova).
         val anteriores = _sugestoes.value.associateBy { it.nome.trim().lowercase() }
-        _sugestoes.value = (porConsumo + vencendo).map { nova ->
+        val novas = (porConsumo + vencendo).map { nova ->
             val chave = nova.nome.trim().lowercase()
             anteriores[chave]?.copy(
                 quantidade = anteriores[chave]!!.quantidade,
                 marcada = anteriores[chave]!!.marcada
-            ) ?: nova
+            ) ?: nova.copy(marcada = true)
         }
+        val chavesNovas = novas.map { it.nome.trim().lowercase() }.toSet()
+        val manuais = anteriores.values.filter {
+            it.origem == OrigemSugestao.MANUAL && it.nome.trim().lowercase() !in chavesNovas
+        }
+        _sugestoes.value = manuais + novas
+    }
+
+    /** Paridade web v2.0 (adicionarManual): entra no topo, já selecionado. */
+    fun adicionarManual(nome: String) {
+        val limpo = nome.trim()
+        if (limpo.isEmpty()) return
+        if (_sugestoes.value.any { it.nome.trim().equals(limpo, ignoreCase = true) }) return
+        _sugestoes.value = listOf(
+            Sugestao(limpo, 1.0, "un", null, OrigemSugestao.MANUAL, marcada = true)
+        ) + _sugestoes.value
+    }
+
+    /** Paridade web v2.0 (removerItem): tira a sugestão da lista (memória). */
+    fun remover(nome: String) {
+        _sugestoes.value = _sugestoes.value.filter { it.nome != nome }
     }
 
     fun alternar(nome: String) {
@@ -205,6 +235,12 @@ fun ListaScreen(vm: ListaViewModel = hiltViewModel(), escuro: Boolean = false) {
     val snackbar = remember { SnackbarHostState() }
     val escopo = rememberCoroutineScope()
     val selecionadas = sugestoes.count { it.marcada }
+    // Paridade web v2.0 (ListaView valorEstimadoTotal): soma qtd × preço unit.
+    val estimativa = sugestoes.filter { it.marcada }.sumOf { s ->
+        val unit = s.precoUnit?.takeIf { it > 0 } ?: 0.0
+        s.quantidade * unit
+    }
+    var novoManual by remember { mutableStateOf("") }
     val calmo = lembrarMovimentoReduzido()
 
     // E08 — mesma janela de primeira coleta do Estoque (memória + Room).
@@ -235,15 +271,94 @@ fun ListaScreen(vm: ListaViewModel = hiltViewModel(), escuro: Boolean = false) {
         ) {
             item {
                 Spacer(Modifier.height(12.dp))
-                Text(
-                    "Sugestões",
-                    style = MaterialTheme.typography.titleMedium
-                )
+                // Paridade web v2.0 (card "Reposição Inteligente"): N itens
+                // marcados + estimativa. Mesma forma 24dp/borda 1dp dos cards.
+                OutlinedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .sombraFeira(escuro, RoundedCornerShape(24.dp)),
+                    shape = RoundedCornerShape(24.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    colors = CardDefaults.outlinedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Reposição Inteligente",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = if (escuro) MentaEcom else TurquesaProfunda
+                                )
+                                Text(
+                                    "$selecionadas ${if (selecionadas == 1) "item marcado" else "itens marcados"}",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                            }
+                            if (estimativa > 0) {
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        "Estimativa",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "R$ ${formatarReais(estimativa)}",
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = if (escuro) MentaEcom else TurquesaProfunda
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        // Paridade web v2.0 (botão WhatsApp): abre o chat com o
+                        // mesmo texto do ListaCompras (sem formato novo).
+                        OutlinedButton(
+                            onClick = {
+                                vm.gerarTextoReposicao()
+                                abrirWhatsApp(contexto, vm.texto.value)
+                            },
+                            enabled = selecionadas > 0,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Filled.Share, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("WhatsApp")
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 Text(
                     "Consumidos nos últimos 30 dias + vencendo em 7 dias",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(Modifier.height(8.dp))
+                // Paridade web v2.0 (adicionarManual): input + botão Plus.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = novoManual,
+                        onValueChange = { novoManual = it },
+                        label = { Text("Adicionar outro item à lista...") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(
+                        onClick = {
+                            vm.adicionarManual(novoManual)
+                            if (novoManual.isNotBlank()) {
+                                escopo.launch { snackbar.showSnackbar("\"${novoManual.trim()}\" adicionado à lista.") }
+                                novoManual = ""
+                            }
+                        },
+                        enabled = novoManual.isNotBlank()
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = "Adicionar item manual à lista")
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
             }
             if (mostrandoSkeleton) {
@@ -254,12 +369,12 @@ fun ListaScreen(vm: ListaViewModel = hiltViewModel(), escuro: Boolean = false) {
                 item {
                     Column(modifier = Modifier.padding(vertical = 24.dp)) {
                         Text(
-                            "Sua feira está vazia 🧺",
+                            "Nenhum item pendente de reposição",
                             style = MaterialTheme.typography.titleMedium
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Sem sugestões — consuma itens ou cadastre validades.",
+                            "Quando você consumir ou itens estiverem acabando na despensa, sugestões automáticas aparecerão aqui!",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -291,6 +406,7 @@ fun ListaScreen(vm: ListaViewModel = hiltViewModel(), escuro: Boolean = false) {
                             onAlternar = { vm.alternar(s.nome) },
                             onMais = { vm.ajustarQtd(s.nome, passo(s.unidade)) },
                             onMenos = { vm.ajustarQtd(s.nome, -passo(s.unidade)) },
+                            onRemover = { vm.remover(s.nome) },
                             calmo = calmo,
                             escuro = escuro
                         )
@@ -403,6 +519,7 @@ private fun SugestaoCard(
     onAlternar: () -> Unit,
     onMais: () -> Unit,
     onMenos: () -> Unit,
+    onRemover: () -> Unit,
     calmo: Boolean = false,
     escuro: Boolean = false
 ) {
@@ -467,24 +584,31 @@ private fun SugestaoCard(
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // Chip de origem em pílula calma (sem pop): CONSUMO =
-                    // NevoaTurquesa/CartaoEcom + Turquesa; VENCE EM 7D = Ambar + TintaMaré/NoiteEcom.
-                    val chipFundo = if (sugestao.origem == OrigemSugestao.CONSUMO) {
-                        if (escuro) CartaoEcom else NevoaTurquesa
-                    } else {
-                        AmbarEcom
+                    // NevoaTurquesa/CartaoEcom + Turquesa; VENCE EM 7D = Ambar +
+                    // TintaMaré/NoiteEcom; MANUAL = outline neutro (port web).
+                    val chipFundo = when (sugestao.origem) {
+                        OrigemSugestao.CONSUMO -> if (escuro) CartaoEcom else NevoaTurquesa
+                        OrigemSugestao.VALIDADE -> AmbarEcom
+                        OrigemSugestao.MANUAL -> androidx.compose.ui.graphics.Color.Transparent
                     }
-                    val corTextoChip = if (sugestao.origem == OrigemSugestao.CONSUMO) {
-                        verdeMarcado
-                    } else {
-                        if (escuro) NoiteEcom else TintaMare
+                    val corTextoChip = when (sugestao.origem) {
+                        OrigemSugestao.CONSUMO -> verdeMarcado
+                        OrigemSugestao.VALIDADE -> if (escuro) NoiteEcom else TintaMare
+                        OrigemSugestao.MANUAL -> MaterialTheme.colorScheme.onSurfaceVariant
                     }
                     Surface(
                         color = chipFundo,
                         contentColor = corTextoChip,
-                        shape = CircleShape
+                        shape = CircleShape,
+                        border = if (sugestao.origem == OrigemSugestao.MANUAL)
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null
                     ) {
                         Text(
-                            if (sugestao.origem == OrigemSugestao.CONSUMO) "CONSUMO" else "VENCE EM 7D",
+                            when (sugestao.origem) {
+                                OrigemSugestao.CONSUMO -> "CONSUMO"
+                                OrigemSugestao.VALIDADE -> "VENCE EM 7D"
+                                OrigemSugestao.MANUAL -> "MANUAL"
+                            },
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
                             letterSpacing = 0.5.sp,
@@ -515,6 +639,14 @@ private fun SugestaoCard(
                 interactionSource = interMais,
                 modifier = Modifier.escalaPress(interMais, calmo)
             ) { Text("+", fontWeight = FontWeight.Bold) }
+            // Paridade web v2.0 (lixeira por item).
+            IconButton(onClick = onRemover) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = "Remover ${sugestao.nome} da lista",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -525,6 +657,20 @@ private fun compartilhar(contexto: Context, texto: String) {
         putExtra(Intent.EXTRA_TEXT, texto)
     }
     contexto.startActivity(Intent.createChooser(intent, "Enviar via"))
+}
+
+/**
+ * Paridade web v2.0 (compartilharWhatsApp, ListaView): abre o WhatsApp com o
+ * texto já preenchido. Sem app na web cai no navegador; no nativo, sem
+ * WhatsApp, Toast orienta (fallback) em vez de travar.
+ */
+private fun abrirWhatsApp(contexto: Context, texto: String) {
+    if (texto.isBlank()) return
+    val uri = Uri.parse("https://api.whatsapp.com/send?text=${Uri.encode(texto)}")
+    val intent = Intent(Intent.ACTION_VIEW, uri)
+    runCatching { contexto.startActivity(intent) }.onFailure {
+        Toast.makeText(contexto, "WhatsApp indisponível — use Compartilhar", Toast.LENGTH_LONG).show()
+    }
 }
 
 private fun copiar(contexto: Context, texto: String) {

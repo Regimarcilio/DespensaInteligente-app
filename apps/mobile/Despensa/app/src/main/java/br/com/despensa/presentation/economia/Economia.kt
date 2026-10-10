@@ -23,15 +23,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -57,6 +61,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import br.com.despensa.data.local.dao.BaixaDao
 import br.com.despensa.data.local.dao.EstoqueDao
+import br.com.despensa.data.local.entity.BaixaEntity
+import br.com.despensa.data.local.entity.EstoqueEntity
+import br.com.despensa.data.local.entity.LocalEstoque
+import br.com.despensa.data.local.entity.MotivoBaixa
 import br.com.despensa.domain.formatarReais
 import br.com.despensa.domain.inicioDoMes
 import br.com.despensa.domain.proporcaoConsumida
@@ -77,6 +85,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
@@ -105,6 +114,18 @@ class EconomiaViewModel @Inject constructor(
     val perdidos: StateFlow<Double> = perdidosFluxo
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
+    /**
+     * Paridade web v2.0 (EconomiaView Histórico Recente + "Total acumulado
+     * salvo"): fluxos SOMENTE-leitura sobre queries novas do [BaixaDao]
+     * (sem migração, sem mudar as somas do mês).
+     */
+    val historico: StateFlow<List<BaixaEntity>> = baixaDao.observarTodas()
+        .map { it.take(15) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val salvosAcumulado: StateFlow<Double> = baixaDao.salvosTotal()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
     /** Expõe o marco p/ testes de UI/preview (default = mês corrente). */
     fun marcoMes(): Long = marco
 
@@ -125,14 +146,40 @@ class EconomiaViewModel @Inject constructor(
         res.baixas.forEach { baixaDao.registrar(it) }
         return res
     }
+
+    /**
+     * Paridade web v2.0 ("Restaurar exemplos", storage/db.ts): reinsere os
+     * 6 itens + 3 baixas de exemplo com validades relativas a HOJE (upsert por
+     * id seed-w*, idempotente). Só INSERTs — sem migração, sem mudar regras.
+     */
+    suspend fun restaurarExemplos() {
+        val dia = 24L * 60 * 60 * 1000
+        val agora = System.currentTimeMillis()
+        listOf(
+            EstoqueEntity("seed-w1", "Leite Integral 1L", 2.0, "cx", agora + 2 * dia, LocalEstoque.GELADEIRA, null, 4.89, agora - 3 * dia),
+            EstoqueEntity("seed-w2", "Iogurte Natural", 3.0, "pote", agora - 1 * dia, LocalEstoque.GELADEIRA, null, 3.5, agora - 10 * dia),
+            EstoqueEntity("seed-w3", "Filé de Frango 1kg", 2.0, "pct", agora + 60 * dia, LocalEstoque.FREEZER, null, 19.9, agora - 5 * dia),
+            EstoqueEntity("seed-w4", "Arroz Branco 5kg", 1.0, "pct", agora + 180 * dia, LocalEstoque.DESPENSA, null, 28.5, agora - 12 * dia),
+            EstoqueEntity("seed-w5", "Tomate Italiano", 6.0, "un", agora + 1 * dia, LocalEstoque.GELADEIRA, null, 1.2, agora - 4 * dia),
+            EstoqueEntity("seed-w6", "Azeite Extra Virgem 500ml", 1.0, "un", agora + 240 * dia, LocalEstoque.DESPENSA, null, 34.9, agora - 20 * dia)
+        ).forEach { estoqueDao.upsert(it) }
+        listOf(
+            BaixaEntity("seed-wb1", "Manteiga com Sal 200g", 1.0, "pote", 11.5, MotivoBaixa.CONSUMIDO, agora - 2 * dia),
+            BaixaEntity("seed-wb2", "Queijo Muçarela 300g", 1.0, "pct", 16.8, MotivoBaixa.CONSUMIDO, agora - 4 * dia),
+            BaixaEntity("seed-wb3", "Pão de Forma", 1.0, "pct", 7.9, MotivoBaixa.DESCARTADO, agora - 7 * dia)
+        ).forEach { baixaDao.registrar(it) }
+    }
 }
 
 @Composable
 fun EconomiaScreen(vm: EconomiaViewModel = hiltViewModel(), escuro: Boolean = false) {
     val salvos by vm.salvos.collectAsState()
     val perdidos by vm.perdidos.collectAsState()
+    val historico by vm.historico.collectAsState()
+    val acumulado by vm.salvosAcumulado.collectAsState()
     val proporcao = proporcaoConsumida(salvos, perdidos)
     val pctConsumido = (proporcao * 100).toInt()
+    val temMovimentoMes = salvos + perdidos > 0
     // Maré v4 (§07-paleta-v4): hero turquesa/menta, perda vermelho-queimado — sem neon.
     // CTA LaranjaEcom SEMPRE fill grande com onSecondary = TintaMaré/NoiteEcom
     // (branco 2,36 ❌ proibido); laranja nunca como texto pequeno.
@@ -144,6 +191,7 @@ fun EconomiaScreen(vm: EconomiaViewModel = hiltViewModel(), escuro: Boolean = fa
     val contexto = LocalContext.current
     val escopo = rememberCoroutineScope()
     var statusBackup by remember { mutableStateOf<String?>(null) }
+    var confirmarExemplos by remember { mutableStateOf(false) }
     val calmo = lembrarMovimentoReduzido()
 
     // E03 — count-up do hero: inteiros + centavos, mesma spec 800ms.
@@ -237,11 +285,34 @@ fun EconomiaScreen(vm: EconomiaViewModel = hiltViewModel(), escuro: Boolean = fa
             .padding(horizontal = 16.dp)
     ) {
         Spacer(Modifier.height(16.dp))
-        Text(
-            "Você salvou em ${mesAtual()}",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        // Paridade web v2.0 (hero "Economia deste Mês" + selo "% aproveitado" /
+        // "Sem dados ainda"). Selo em pílula calma, mesma forma dos demais.
+        Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "Você salvou em ${mesAtual()}",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
+            )
+            Surface(
+                color = if (temMovimentoMes) corHero.copy(alpha = 0.15f)
+                else MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = if (temMovimentoMes) corHero
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                shape = CircleShape
+            ) {
+                Text(
+                    if (!temMovimentoMes) "Sem dados ainda"
+                    else "$pctConsumido% aproveitado",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    maxLines = 1
+                )
+            }
+        }
         // E03 — HERO maré: preço de banca escrito à mão — Fraunces Bold 52/56
         // em TurquesaProfunda/MentaEcom + count-up + bump. Sem glow, sem radial.
         Text(
@@ -307,6 +378,71 @@ fun EconomiaScreen(vm: EconomiaViewModel = hiltViewModel(), escuro: Boolean = fa
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        // Paridade web v2.0 ("Total acumulado salvo"): soma CONSUMIDO sem
+        // filtro de mês, abaixo da barra como na grade de stats da web.
+        Text(
+            "Total acumulado salvo: R$ ${formatarReais(acumulado)}",
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+            color = corHero,
+            modifier = Modifier.padding(top = 6.dp)
+        )
+        // Paridade web v2.0 (Histórico Recente, 15 últimas baixas): ✅/🗑️ +
+        // data + qtd + +R$/-R$. Card 24dp/borda 1dp, mesma forma dos demais.
+        Spacer(Modifier.height(16.dp))
+        OutlinedCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .sombraFeira(escuro, RoundedCornerShape(24.dp)),
+            shape = RoundedCornerShape(24.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(Modifier.padding(12.dp)) {
+                Text(
+                    "Histórico Recente",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(Modifier.height(8.dp))
+                if (historico.isEmpty()) {
+                    Text(
+                        "Nenhuma movimentação registrada ainda.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                } else {
+                    historico.forEach { b ->
+                        val consumido = b.motivo == MotivoBaixa.CONSUMIDO
+                        Row(
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Text(if (consumido) "✅" else "🗑️")
+                            Column(modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                                Text(
+                                    b.nome,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    maxLines = 1
+                                )
+                                Text(
+                                    "${formatarDataCurta(b.ts)} • ${formatarQtdEco(b.quantidade)} ${b.unidade}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                (if (consumido) "+ " else "- ") + "R$ ${formatarReais(b.valorTotal)}",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                color = if (consumido) corHero else corPerda,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+        }
         // Issue #2: seção Backup (export/import via SAF, padrão ListaCompras).
         Spacer(Modifier.height(24.dp))
         Text(
@@ -353,7 +489,35 @@ fun EconomiaScreen(vm: EconomiaViewModel = hiltViewModel(), escuro: Boolean = fa
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        // Paridade web v2.0 ("Restaurar exemplos", storage/db.ts): reinsere os
+        // dados de exemplo com confirmação. Sem GitHub-Sync (OUT da issue #1).
+        TextButton(
+            onClick = { confirmarExemplos = true },
+            modifier = Modifier.semantics { onClick(label = "Restaurar alimentos e dados de exemplo", action = null) }
+        ) { Text("Restaurar exemplos") }
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (confirmarExemplos) {
+        AlertDialog(
+            onDismissRequest = { confirmarExemplos = false },
+            shape = RoundedCornerShape(28.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text("Restaurar exemplos") },
+            text = { Text("Deseja recarregar os alimentos e dados de exemplo?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmarExemplos = false
+                    escopo.launch(Dispatchers.IO) {
+                        vm.restaurarExemplos()
+                        withContext(Dispatchers.Main) { avisar("Dados de exemplo recarregados.") }
+                    }
+                }) { Text("Restaurar", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmarExemplos = false }) { Text("Cancelar") }
+            }
+        )
     }
 }
 
@@ -453,3 +617,11 @@ private fun mesAtual(): String {
         .format(java.util.Date())
     return nome.replaceFirstChar { it.uppercase() }
 }
+
+/** "25/12/2026" p/ o Histórico Recente (port de formatarDataBr da web). */
+private fun formatarDataCurta(epoch: Long): String =
+    java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale("pt", "BR")).format(java.util.Date(epoch))
+
+/** Inteiro sem casa decimal (mesmo padrão dos cards de estoque/lista). */
+private fun formatarQtdEco(qtd: Double): String =
+    if (qtd % 1.0 == 0.0) qtd.toInt().toString() else qtd.toString()
