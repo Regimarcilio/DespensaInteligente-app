@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Issue #1: TakePicture escreve aqui; o app de câmera recebe Uri FileProvider (sem permissão CAMERA). -->
+<paths>
+    <cache-path name="pictures" path="pictures/" />
+</paths>

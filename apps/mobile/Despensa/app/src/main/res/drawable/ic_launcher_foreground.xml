@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Despensa · pote neon minimalista. Fundo UvaNoite via @color/ic_launcher_background. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Tampa do pote (LimaNeon) -->
+    <path
+        android:fillColor="#C6FF00"
+        android:strokeColor="#00000000"
+        android:pathData="M34,38 H74 V46 H34 Z" />
+    <!-- Corpo do pote (contorno creme) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFF6E9"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M38,46 V74 Q38,80 44,80 H64 Q70,80 70,74 V46" />
+    <!-- Detalhe roxo elétrico (etiqueta) -->
+    <path
+        android:fillColor="#7C4DFF"
+        android:strokeColor="#00000000"
+        android:pathData="M44,58 H64 V66 H44 Z" />
+</vector>

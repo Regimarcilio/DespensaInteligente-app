@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DespensaInteligente — Prévia de identidade (v4 e-commerce)</title>
+<style>
+  :root{--bg:#FFFBF4;--card:#FFFFFF;--neve:#F2F5FF;--tinta:#14343C;--mut:#47626E;--turq:#0B6E5F;
+    --turqbg:#E0F2EE;--lar:#FF8A00;--amb:#FFB224;--ambbg:#FFF3D6;--ver:#B91C1C;--verbg:#FDECEC;--linha:#D8E6E8;}
+  *{box-sizing:border-box} body{margin:0 auto;max-width:420px;min-height:100vh;background:var(--bg);color:var(--tinta);
+    font-family:Georgia,'Times New Roman',serif;padding:0 0 96px;}
+  body,.mut,.pill,.cta,nav div{font-family:system-ui,-apple-system,Roboto,sans-serif;}
+  header{background:linear-gradient(135deg,#0B6E5F,#0E9F8A);padding:20px 16px 22px;border-radius:0 0 26px 26px;color:#fff;}
+  .app{font-size:13px;font-weight:800;letter-spacing:2px;}
+  .hero{font-size:46px;font-weight:700;line-height:1;margin:6px 0 2px;}
+  .hero small{font-size:15px;font-weight:600;display:block;margin-top:4px;opacity:.9;}
+  main{padding:14px 14px 0;}
+  .card{background:var(--card);border:1px solid var(--linha);border-radius:24px;padding:14px;margin-bottom:12px;
+    box-shadow:0 6px 16px #14343C14;}
+  .row{display:flex;gap:10px;align-items:center;}
+  .grow{flex:1;min-width:0}.nome{font-weight:700;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .mut{color:var(--mut);font-size:13px;}
+  .thumb{width:64px;height:64px;flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:28px;background:var(--neve);}
+  .anel-ok{border:3px solid var(--turq);} .anel-av{border:3px solid var(--amb);} .anel-er{border:3px solid var(--ver);}
+  .pill{display:inline-block;font-weight:800;font-size:12px;padding:6px 12px;border-radius:999px;letter-spacing:.5px;}
+  .p-ok{background:var(--turqbg);color:var(--turq);} .p-av{background:var(--ambbg);color:#8A5A00;}
+  .p-er{background:var(--verbg);color:var(--ver);}
+  .cta{background:var(--lar);color:var(--tinta);border:0;border-radius:14px;font-weight:900;font-size:16px;
+    width:100%;padding:15px;box-shadow:0 6px 16px #FF8A0044;}
+  nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:420px;background:var(--card);
+    border-top:1px solid var(--linha);display:flex;}
+  nav div{flex:1;text-align:center;padding:12px 0 16px;font-size:12px;color:var(--mut);}
+  nav div.on{color:var(--turq);font-weight:800;}
+</style>
+</head>
+<body>
+<header><div class="app">DESPENSA INTELIGENTE</div>
+  <div class="hero">R$ 132,40<small>salvos do lixo este mês 🤑</small></div></header>
+<main>
+  <div class="card"><div class="row"><div class="thumb anel-ok">🥛</div><div class="grow"><div class="nome">Iogurte natural</div>
+    <div class="mut">4 un · geladeira · vence em 5 dias</div></div>
+    <span class="pill p-ok">FRESCO</span></div></div>
+  <div class="card"><div class="row"><div class="thumb anel-av">🧀</div><div class="grow"><div class="nome">Queijo minas</div>
+    <div class="mut">1 peça · geladeira · vence em 2 dias</div></div>
+    <span class="pill p-av">ATENÇÃO</span></div></div>
+  <div class="card"><div class="row"><div class="thumb anel-er">🥬</div><div class="grow"><div class="nome">Alface</div>
+    <div class="mut">venceu ontem · R$ 3,49 perdidos</div></div>
+    <span class="pill p-er">VENCEU</span></div></div>
+  <button class="cta">+ Adicionar item</button>
+</main>
+<nav><div>🏠<br>Início</div><div class="on">🧊<br>Estoque</div><div>🛒<br>Lista</div><div>📊<br>R$</div></nav>
+</body>
+</html>
