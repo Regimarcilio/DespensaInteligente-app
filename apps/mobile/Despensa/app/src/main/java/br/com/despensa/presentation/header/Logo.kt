@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -22,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.despensa.presentation.theme.LaranjaEcom
@@ -43,27 +46,34 @@ fun Logo(
     modifier: Modifier = Modifier,
     escuro: Boolean = false
 ) {
+    // FIX header 360dp: bounds fixos, sem sobreposição. Selo compacto 32dp +
+    // coluna com weight(1f) para o título ter largura garantida e truncar com
+    // ellipsis em vez de estourar as actions. Altura travada em 48dp para
+    // caber no TopAppBar de 64dp sem colidir com o divider.
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier.semantics {
-            contentDescription = "Despensa Inteligente"
-        }
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(max = 48.dp)
+            .semantics {
+                contentDescription = "Despensa Inteligente"
+            }
     ) {
         Box(
-            modifier = Modifier.size(36.dp),
+            modifier = Modifier.size(32.dp),
             contentAlignment = Alignment.Center
         ) {
             Box(
                 modifier = Modifier
-                    .size(36.dp)
-                    .background(TurquesaProfunda, RoundedCornerShape(12.dp)),
+                    .size(32.dp)
+                    .background(TurquesaProfunda, RoundedCornerShape(10.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Filled.ShoppingBasket,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
             // Badge âmbar (eco do spark web + dot de override do tema).
@@ -71,27 +81,33 @@ fun Logo(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .offset(x = 1.dp, y = (-1).dp)
-                    .size(9.dp)
+                    .size(8.dp)
                     .background(LaranjaEcom, CircleShape)
                     .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
             )
         }
-        Column(modifier = Modifier.padding(start = 10.dp)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 8.dp)
+        ) {
             Text(
                 "Despensa",
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
                 color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 "INTELIGENTE",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Black,
-                    letterSpacing = 2.2.sp,
+                    letterSpacing = 1.8.sp,
                     fontSize = 9.sp
                 ),
                 color = LaranjaEcom,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

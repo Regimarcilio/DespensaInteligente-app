@@ -734,8 +734,9 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                     }
                 }
             } else {
+                // FIX FAB: 96dp p/ nunca cobrir o 3º contador/cards.
                 LazyColumn(
-                    contentPadding = PaddingValues(bottom = 88.dp),
+                    contentPadding = PaddingValues(bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     itemsIndexed(itens, key = { _, it -> it.id }) { index, item ->

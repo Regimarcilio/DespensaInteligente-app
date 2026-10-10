@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.despensa.presentation.theme.AmbarEcom
@@ -113,12 +114,14 @@ fun PilulaStatus(
         mod = mod.alpha(a)
     }
 
+    // FIX header 360dp: padding compacto + ellipsis garantido, altura fixa de
+    // uma linha para nunca estourar o TopAppBar.
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = mod
             .background(fundo, CircleShape)
             .border(1.dp, borda, CircleShape)
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
         Icon(
             icone,
@@ -126,13 +129,14 @@ fun PilulaStatus(
             tint = tinta,
             modifier = Modifier.size(14.dp)
         )
-        Spacer(Modifier.width(6.dp))
+        Spacer(Modifier.width(4.dp))
         Text(
             texto,
             color = tinta,
             fontWeight = FontWeight.ExtraBold,
             fontSize = 11.sp,
-            maxLines = 1
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

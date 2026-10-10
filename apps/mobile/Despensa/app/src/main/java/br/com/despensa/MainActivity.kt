@@ -137,26 +137,13 @@ class MainActivity : ComponentActivity() {
 
                 // §(e) + issue #6 — header com marca Logo (port Logo.tsx web)
                 // + pílula de status (port Navbar.tsx). Translúcido surface 95%
-                // como aproximação do glass (sem blur real). Título texto puro
-                // sai; subtítulo por aba mantém AnimatedContent 200ms.
-
-                // §(e) — header SÓLIDO maré: light BrancoMaré, dark NoiteEcom +
-                // Divider 1dp. Título Fraunces Bold (typography.titleLarge),
-                // sem glow. Subtítulo mantém AnimatedContent 200ms.
-                // issue #6: tituloAba textual sai — Logo é a marca em toda aba.
-                // Paridade web v2.0 (Navbar "Em estoque R$ X"): total vai no
-                // subtítulo — sem banner, forma Feira sólida mantida.
-                val valorEstoque = itens.sumOf {
-                    it.quantidade * (it.precoRef?.takeIf { p -> p > 0 } ?: 0.0)
-                }
-                val subtituloAba = when (aba) {
-                    Aba.ESTOQUE -> buildString {
-                        append("${itens.size} ${if (itens.size == 1) "item" else "itens"} em estoque")
-                        if (valorEstoque > 0) append(" • R$ ${formatarReais(valorEstoque)}")
-                    }
-                    Aba.LISTA -> "Exporte para o ListaCompras"
-                    Aba.ECONOMIA -> "Salvos vs perdidos no mês"
-                }
+                // como aproximação do glass (sem blur real).
+                // FIX header 360dp: subtítulo "N itens • R$ X" REMOVIDO da
+                // TopAppBar — o corpo/hero já mostram contagem + valor.
+                // Manter as 2 linhas no title estourava os 64dp do TopAppBar e
+                // colidia com o divider ("Despe"/"INTELIGENT" cortados). Logo
+                // compacto + pílula têm bounds fixos, sem AnimatedContent aqui.
+                // UM título por tela: marca no header, contagem no corpo.
                 val verdeNav = if (escuro) MentaEcom else TurquesaProfunda
                 val rotuloTema = when (modo) {
                     ModoTema.SISTEMA -> "Sistema"
@@ -169,25 +156,12 @@ class MainActivity : ComponentActivity() {
                         Column {
                             TopAppBar(
                                 title = {
-                                    Column(modifier = Modifier.fillMaxWidth()) {
-                                        Logo(escuro = escuro)
-                                        AnimatedContent(
-                                            targetState = subtituloAba,
-                                            transitionSpec = {
-                                                fadeIn(tween(Dur.P200)) +
-                                                    slideInVertically(
-                                                        tween(Dur.P200)
-                                                    ) { 6 } togetherWith fadeOut(tween(Dur.P200))
-                                            },
-                                            label = "subtitulo-aba"
-                                        ) { sub ->
-                                            Text(
-                                                sub,
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
+                                    // FIX: só Logo compacto (bounds fixos 48dp,
+                                    // maxLines=1 ellipsis). Sem subtítulo aqui.
+                                    Logo(
+                                        escuro = escuro,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
                                 },
                                 // §b.2 — ação de tema à direita do título.
                                 actions = {
@@ -198,15 +172,19 @@ class MainActivity : ComponentActivity() {
                                             escuro = escuro,
                                             calmo = calmo
                                         )
-                                        Spacer(Modifier.width(4.dp))
+                                        Spacer(Modifier.width(2.dp))
                                         // Paridade web v2.0 (exemplo issue #1): Sobre com
                                         // links repo + releases. PWA/GitHub-Sync OUT.
+                                        // FIX 360dp: 40dp em vez de 48dp p/ sobrar
+                                        // largura garantida ao título.
                                         IconButton(
                                             onClick = { mostrarSobre = true },
-                                            modifier = Modifier.semantics {
-                                                contentDescription =
-                                                    "Sobre o app: versão e links do GitHub"
-                                            }
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .semantics {
+                                                    contentDescription =
+                                                        "Sobre o app: versão e links do GitHub"
+                                                }
                                         ) {
                                             Icon(
                                                 Icons.Filled.Info,
@@ -217,10 +195,12 @@ class MainActivity : ComponentActivity() {
                                         Box(contentAlignment = Alignment.Center) {
                                         IconButton(
                                             onClick = { mostrarDialogoTema = true },
-                                            modifier = Modifier.semantics {
-                                                contentDescription =
-                                                    "Tema: $rotuloTema. Toque para mudar"
-                                            }
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .semantics {
+                                                    contentDescription =
+                                                        "Tema: $rotuloTema. Toque para mudar"
+                                                }
                                         ) {
                                             Icon(
                                                 Icons.Filled.Contrast,
