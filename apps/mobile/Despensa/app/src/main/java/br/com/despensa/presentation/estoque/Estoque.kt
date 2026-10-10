@@ -6,8 +6,10 @@ import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -48,29 +50,33 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -92,15 +98,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -122,20 +132,26 @@ import br.com.despensa.domain.formatarReais
 import br.com.despensa.domain.statusValidade
 import br.com.despensa.domain.validarCadastro
 import br.com.despensa.domain.valorTotalBaixa
+import br.com.despensa.presentation.theme.AmbarEcom
 import br.com.despensa.presentation.theme.Nevoa
 import br.com.despensa.presentation.theme.BordaNoiteAzul
 import br.com.despensa.presentation.theme.PetroleoSec
 import br.com.despensa.presentation.theme.MutedEcom
 import br.com.despensa.presentation.theme.CartaoEcom
+import br.com.despensa.presentation.theme.DisplayFeira
 import br.com.despensa.presentation.theme.Dur
 import br.com.despensa.presentation.theme.EsqueletoCard
 import br.com.despensa.presentation.theme.LinhaAzul
 import br.com.despensa.presentation.theme.NeveEcom
+import br.com.despensa.presentation.theme.NevoaTurquesa
+import br.com.despensa.presentation.theme.MentaEcom
+import br.com.despensa.presentation.theme.RosaQueimadoFundo
+import br.com.despensa.presentation.theme.VermelhoNoite
 import br.com.despensa.presentation.theme.VermelhoQueimado
 import br.com.despensa.presentation.theme.LaranjaEcom
+import br.com.despensa.presentation.theme.LaranjaQueimada
 import br.com.despensa.presentation.theme.TurquesaProfunda
 import br.com.despensa.presentation.theme.atrasoStagger
-import br.com.despensa.presentation.theme.corAnelFrescor
 import br.com.despensa.presentation.theme.corFundoSelo
 import br.com.despensa.presentation.theme.corTextoSelo
 import br.com.despensa.presentation.theme.escalaPress
@@ -383,13 +399,6 @@ private fun rotuloLocal(local: LocalEstoque): String = when (local) {
     LocalEstoque.DESPENSA -> "Despensa"
 }
 
-private fun rotuloStatus(s: StatusValidade): String = when (s) {
-    StatusValidade.VENCIDO -> "VENCEU"
-    StatusValidade.ATENCAO -> "ATENÇÃO"
-    StatusValidade.FRESCO -> "FRESCO"
-    StatusValidade.SEM_VALIDADE -> "SEM VALIDADE"
-}
-
 /**
  * Port de formatarDiasRestantes (web validade.ts): texto amigável da validade
  * p/ o card. Pura e testada (regras de dia intactas — só o texto).
@@ -418,6 +427,11 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
     val filtro by vm.filtroAtual.collectAsState()
     val filtroStatus by vm.filtroStatusAtual.collectAsState()
     val contadores by vm.contadores.collectAsState()
+    // HeroFrescor (§4.2): valor em estoque = mesma soma do subtítulo
+    // (MainActivity) — só leitura p/ UI, sem regra nova.
+    val valorEstoque = brutos.sumOf {
+        it.quantidade * (it.precoRef?.takeIf { p -> p > 0 } ?: 0.0)
+    }
     var dialogoAberto by remember { mutableStateOf(false) }
     // Paridade web v2.0 (itemEmEdicao): null = novo; não-nulo = editar.
     var editando by remember { mutableStateOf<EstoqueEntity?>(null) }
@@ -465,21 +479,27 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                     fadeOut(specCalma(tween(Dur.P200), calmo)),
                 label = "fab-some"
             ) {
-                ExtendedFloatingActionButton(
+                FloatingActionButton(
                     onClick = { editando = null; dialogoAberto = true },
                     modifier = Modifier
+                        .size(56.dp)
+                        .sombraFeira(escuro, RoundedCornerShape(16.dp))
                         .semantics {
                             contentDescription = "Adicionar item ao estoque"
                             onClick(label = "Adicionar item ao estoque", action = null)
                         }
                         .graphicsLayer(scaleX = fabPress, scaleY = fabPress),
-                    shape = RoundedCornerShape(20.dp),
-                    interactionSource = interFab,
-                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                    text = { Text("Adicionar", fontWeight = FontWeight.Bold) },
-                    containerColor = LaranjaEcom,
-                    contentColor = MaterialTheme.colorScheme.onSecondary
-                )
+                    shape = RoundedCornerShape(16.dp),
+                    containerColor = TurquesaProfunda,
+                    contentColor = Color.White,
+                    interactionSource = interFab
+                ) {
+                    Icon(
+                        Icons.Filled.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         }
     ) { pad ->
@@ -503,10 +523,25 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
             OutlinedTextField(
                 value = busca,
                 onValueChange = vm::buscar,
-                label = { Text("Buscar no estoque...") },
-                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Buscar no estoque...") },
+                leadingIcon = {
+                    Icon(
+                        Icons.Filled.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Buscar no estoque" },
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    focusedBorderColor = if (escuro) MentaEcom else TurquesaProfunda,
+                    unfocusedBorderColor = if (escuro) BordaNoiteAzul else LinhaAzul
+                )
             )
             Spacer(Modifier.height(8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -630,7 +665,20 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                     ) { Text("Limpar") }
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            HeroFrescor(
+                totalItens = brutos.size,
+                valorEstoque = valorEstoque,
+                frescos = contadores.frescos,
+                atencao = contadores.atencao,
+                vencidos = contadores.vencidos,
+                escuro = escuro,
+                calmo = calmo,
+                filtroStatus = filtroStatus,
+                onFiltrarStatus = { st ->
+                    vm.filtrarStatus(if (filtroStatus == st) null else st)
+                }
+            )
+            Spacer(Modifier.height(12.dp))
             if (mostrandoSkeleton) {
                 // E08 — 3 fantasmas com shimmer (estáticos com calmo).
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -845,10 +893,36 @@ private fun EstoqueCard(
     val dias = diasParaVencer(item.validade, agora)
     val corSelo = corFundoSelo(status, escuro)
     val tintaSelo = corTextoSelo(status, escuro)
-    val anel = corAnelFrescor(status, escuro)
-    var menuAberto by remember { mutableStateOf(false) }
     var ampliada by remember { mutableStateOf(false) }
     val temFoto = FotoStore.fotoExiste(item.fotoPath)
+
+    // Borda do card espelha o status (§4.5.1): FRESCO outline/BordaNoiteAzul 1dp;
+    // ATENÇÃO AmbarEcom 55%/40% 1dp; VENCIDO VermelhoQueimado 35%/VermelhoNoite 40% 1.5dp.
+    val bordaCard = when (status) {
+        StatusValidade.FRESCO -> BorderStroke(
+            1.dp,
+            if (escuro) BordaNoiteAzul else MaterialTheme.colorScheme.outline
+        )
+        StatusValidade.ATENCAO -> BorderStroke(
+            1.dp,
+            AmbarEcom.copy(alpha = if (escuro) 0.40f else 0.55f)
+        )
+        StatusValidade.VENCIDO -> BorderStroke(
+            1.5.dp,
+            if (escuro) VermelhoNoite.copy(alpha = 0.40f)
+            else VermelhoQueimado.copy(alpha = 0.35f)
+        )
+        StatusValidade.SEM_VALIDADE -> BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    }
+
+    val iconeSelo = when (status) {
+        StatusValidade.VENCIDO -> Icons.Filled.Warning
+        StatusValidade.ATENCAO -> Icons.Filled.WarningAmber
+        StatusValidade.FRESCO -> Icons.Filled.CheckCircle
+        StatusValidade.SEM_VALIDADE -> Icons.Filled.Info
+    }
+    val textoAmigavel = formatarValidadeAmigavel(dias)
+    val inicial = item.nome.trim().firstOrNull()?.uppercase() ?: "•"
 
     // Selo pílula: troca de cor animada 250ms, sem pop, sem rotação, sem glow.
     val corSticker by androidx.compose.animation.animateColorAsState(
@@ -857,9 +931,8 @@ private fun EstoqueCard(
         label = "sticker-cor"
     )
 
-    // E06 — press scale nos tocáveis do card (thumb + menu).
-    val interThumb = remember(item.id) { MutableInteractionSource() }
-    val interMenu = remember(item.id) { MutableInteractionSource() }
+    // E06 — press scale no avatar com foto (mesmo interactionSource do ampliar).
+    val interAvatar = remember(item.id) { MutableInteractionSource() }
 
     // §(b) — card 24dp, borda 1dp outline, sombra suave quente + expansão com
     // spring(300, 0.7). Contenção: nada de glow/blur no item.
@@ -874,109 +947,208 @@ private fun EstoqueCard(
                 )
             ),
         shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        border = bordaCard,
         colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Thumbnail 64dp círculo + anel de frescor 3dp; sem foto: fundo
-            // Nevoa + ícone Image em PetroleoSec. Toque amplia (TalkBack).
-            ThumbFeira(
-                nome = item.nome,
-                fotoPath = item.fotoPath,
-                temFoto = temFoto,
-                anel = anel,
-                interThumb = interThumb,
-                calmo = calmo,
-                escuro = escuro,
-                onAmpliar = { ampliada = true }
-            )
-            Spacer(Modifier.width(8.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    item.nome,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    // Paridade web v2.0 (tags Local + Preço): emoji do local +
-                    // "R$ X/un" quando há preço de referência.
-                    buildString {
-                        append("${formatarQtd(item.quantidade)} ${item.unidade} • ${emojiLocal(item.local)} ${rotuloLocal(item.local)}")
-                        val preco = item.precoRef
-                        if (preco != null && preco > 0) {
-                            append(" • R$ ${formatarReais(preco)}/${item.unidade}")
-                        }
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    // Paridade web v2.0 (formatarDiasRestantes): texto amigável
-                    // + data dd/MM/yyyy.
-                    if (item.validade == null) "Sem validade"
-                    else "${formatarValidadeAmigavel(dias)} • ${formatarData(item.validade)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            // Selo de validade em pílula calma 0° (FRESCO/ATENÇÃO/VENCEU/SEM).
-            Surface(
-                color = corSticker,
-                contentColor = tintaSelo,
-                shape = CircleShape
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    rotuloStatus(status),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    letterSpacing = 0.5.sp,
-                    maxLines = 1,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                // Avatar-letra 52dp por status (foto dentro do mesmo círculo
+                // quando há; sem foto: inicial, nunca ícone genérico).
+                AvatarEstoque(
+                    inicial = inicial,
+                    nome = item.nome,
+                    fotoPath = item.fotoPath,
+                    temFoto = temFoto,
+                    status = status,
+                    escuro = escuro,
+                    inter = interAvatar,
+                    calmo = calmo,
+                    onAmpliar = { ampliada = true }
                 )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    // Linha 1: nome + qtd à direita.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            item.nome,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold
+                            ),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "${formatarQtd(item.quantidade)} ${item.unidade}",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (escuro) AmbarEcom else LaranjaQueimada,
+                            maxLines = 1,
+                            modifier = Modifier.semantics {
+                                contentDescription =
+                                    "quantidade ${formatarQtd(item.quantidade)} ${item.unidade}"
+                            }
+                        )
+                    }
+                    // Linha 2: local • preço (string atual, só re-estilizada).
+                    Text(
+                        buildString {
+                            append("${emojiLocal(item.local)} ${rotuloLocal(item.local)}")
+                            val preco = item.precoRef
+                            if (preco != null && preco > 0) {
+                                append(" • R$ ${formatarReais(preco)}/${item.unidade}")
+                            }
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    // Linha 3: pílula amigável + data à direita.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            color = corSticker,
+                            contentColor = tintaSelo,
+                            shape = CircleShape
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    iconeSelo,
+                                    contentDescription = null,
+                                    tint = tintaSelo,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    textoAmigavel,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 11.sp,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                        if (item.validade != null) {
+                            Text(
+                                formatarData(item.validade),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
             }
-            // Issue #3: swipe não é acessível — Consumir/Descartar também no menu "···".
-            Box {
-                IconButton(
-                    onClick = { menuAberto = true },
-                    interactionSource = interMenu,
-                    modifier = Modifier
-                        .escalaPress(interMenu, calmo)
+            // Linha 4: ações inline (swipe permanece como alternativa gestual;
+            // Snackbar/haptic reaproveitados via onConsumir/onDescartar).
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                val alturaAcao = Modifier.height(36.dp)
+                Button(
+                    onClick = onConsumir,
+                    modifier = alturaAcao
+                        .weight(1f)
                         .semantics {
-                            onClick(label = "Mais ações para ${item.nome}", action = null)
+                            onClick(label = "Consumir ${item.nome}", action = null)
+                        },
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (escuro) MentaEcom.copy(alpha = 0.15f)
+                        else NevoaTurquesa,
+                        contentColor = if (escuro) MentaEcom else TurquesaProfunda
+                    )
+                ) {
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "Consumir",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+                Button(
+                    onClick = onDescartar,
+                    modifier = alturaAcao
+                        .weight(1f)
+                        .semantics {
+                            onClick(label = "Descartar ${item.nome}", action = null)
+                        },
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (escuro) VermelhoNoite.copy(alpha = 0.20f)
+                        else RosaQueimadoFundo,
+                        contentColor = if (escuro) VermelhoNoite else VermelhoQueimado
+                    )
+                ) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "Descartar",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+                IconButton(
+                    onClick = onEditar,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .semantics {
+                            onClick(label = "Editar ${item.nome}", action = null)
                         }
                 ) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "Mais ações para ${item.nome}")
+                    Icon(
+                        Icons.Filled.Edit,
+                        contentDescription = "Editar ${item.nome}",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                DropdownMenu(expanded = menuAberto, onDismissRequest = { menuAberto = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Consumir") },
-                        onClick = { menuAberto = false; onConsumir() },
-                        leadingIcon = { Icon(Icons.Filled.Check, contentDescription = null) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Descartar") },
-                        onClick = { menuAberto = false; onDescartar() },
-                        leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) }
-                    )
-                    // Paridade web v2.0 (botão Editar do card).
-                    DropdownMenuItem(
-                        text = { Text("Editar") },
-                        onClick = { menuAberto = false; onEditar() },
-                        leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Remover sem baixa") },
-                        onClick = { menuAberto = false; onRemover() },
-                        leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) }
+                IconButton(
+                    onClick = onRemover,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .semantics {
+                            onClick(label = "Remover ${item.nome} sem baixa", action = null)
+                        }
+                ) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = "Remover ${item.nome} sem baixa",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -1019,64 +1191,312 @@ private fun EstoqueCard(
     }
 }
 
-/** Thumb 64dp círculo + anel de frescor 3dp (§b). */
+/**
+ * Hero de frescor (§4.2, único componente novo): gradiente teal 28dp com
+ * eyebrow, título serifado, valor em estoque e 3 contadores que filtram
+ * (reaproveitam `filtrarStatus`, sem regra nova). Teal idêntico nos 2 modos.
+ */
 @Composable
-private fun ThumbFeira(
+private fun HeroFrescor(
+    totalItens: Int,
+    valorEstoque: Double,
+    frescos: Int,
+    atencao: Int,
+    vencidos: Int,
+    escuro: Boolean,
+    calmo: Boolean,
+    filtroStatus: StatusValidade?,
+    onFiltrarStatus: (StatusValidade?) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(TurquesaProfunda, Color(0xFF0E7C6B))
+                ),
+                RoundedCornerShape(28.dp)
+            )
+            .then(
+                if (escuro) Modifier.border(
+                    1.dp,
+                    MentaEcom.copy(alpha = 0.25f),
+                    RoundedCornerShape(28.dp)
+                ) else Modifier
+            )
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "✨ CONTROLE DE FRESCOR",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.5.sp,
+                color = Color.White.copy(alpha = 0.85f),
+                maxLines = 1,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                "$totalItens ${if (totalItens == 1) "item guardado" else "itens guardados"}",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = 0.75f),
+                maxLines = 1
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                "Sua despensa, no\nponto certo.",
+                fontFamily = DisplayFeira,
+                fontWeight = FontWeight.Bold,
+                fontSize = 24.sp,
+                lineHeight = 30.sp,
+                color = Color.White,
+                maxLines = 2,
+                modifier = Modifier.weight(1f)
+            )
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    "EM ESTOQUE",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp,
+                    color = Color.White.copy(alpha = 0.70f),
+                    maxLines = 1
+                )
+                if (calmo) {
+                    Text(
+                        "R$ ${formatarReais(valorEstoque)}",
+                        fontFamily = DisplayFeira,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 19.sp,
+                        color = AmbarEcom,
+                        maxLines = 1,
+                        modifier = Modifier.semantics {
+                            contentDescription =
+                                "Valor em estoque R$ ${formatarReais(valorEstoque)}"
+                        }
+                    )
+                } else {
+                    AnimatedContent(
+                        targetState = valorEstoque,
+                        transitionSpec = {
+                            fadeIn(tween(Dur.P200)) togetherWith fadeOut(tween(Dur.P200))
+                        },
+                        label = "hero-valor",
+                        modifier = Modifier.semantics {
+                            contentDescription =
+                                "Valor em estoque R$ ${formatarReais(valorEstoque)}"
+                        }
+                    ) { valor ->
+                        Text(
+                            "R$ ${formatarReais(valor)}",
+                            fontFamily = DisplayFeira,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 19.sp,
+                            color = AmbarEcom,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        HorizontalDivider(thickness = 1.dp, color = Color.White.copy(alpha = 0.15f))
+        Spacer(Modifier.height(12.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            MiniContador(
+                modifier = Modifier.weight(1f),
+                numero = frescos,
+                rotulo = "Frescos",
+                sub = ">3 dias",
+                icone = Icons.Filled.CheckCircle,
+                tinta = MentaEcom,
+                selecionado = filtroStatus == StatusValidade.FRESCO,
+                escuro = escuro,
+                descricao = "Filtrar frescos, $frescos itens",
+                onClick = { onFiltrarStatus(StatusValidade.FRESCO) }
+            )
+            MiniContador(
+                modifier = Modifier.weight(1f),
+                numero = atencao,
+                rotulo = "Atenção",
+                sub = "≤3 dias",
+                icone = Icons.Filled.WarningAmber,
+                tinta = AmbarEcom,
+                selecionado = filtroStatus == StatusValidade.ATENCAO,
+                escuro = escuro,
+                descricao = "Filtrar atenção, $atencao itens",
+                onClick = { onFiltrarStatus(StatusValidade.ATENCAO) }
+            )
+            MiniContador(
+                modifier = Modifier.weight(1f),
+                numero = vencidos,
+                rotulo = "Vencido",
+                sub = "Urgente",
+                icone = Icons.Filled.Warning,
+                tinta = Color.White,
+                selecionado = filtroStatus == StatusValidade.VENCIDO,
+                escuro = escuro,
+                descricao = "Filtrar vencidos, $vencidos itens",
+                onClick = { onFiltrarStatus(StatusValidade.VENCIDO) }
+            )
+        }
+    }
+}
+
+/** Mini-card translúcido do hero: toque filtra por status (toggle). */
+@Composable
+private fun MiniContador(
+    modifier: Modifier = Modifier,
+    numero: Int,
+    rotulo: String,
+    sub: String,
+    icone: ImageVector,
+    tinta: Color,
+    selecionado: Boolean,
+    escuro: Boolean,
+    descricao: String,
+    onClick: () -> Unit
+) {
+    val fundoMini = if (escuro) Color.White.copy(alpha = 0.08f)
+    else Color.White.copy(alpha = 0.12f)
+    val bordaMini = if (selecionado) Color.White.copy(alpha = 0.60f)
+    else Color.Transparent
+    Column(
+        modifier = modifier
+            .background(fundoMini, RoundedCornerShape(16.dp))
+            .border(1.dp, bordaMini, RoundedCornerShape(16.dp))
+            .clickable(onClickLabel = descricao) { onClick() }
+            .padding(10.dp)
+            .semantics {
+                contentDescription = descricao
+                stateDescription = if (selecionado) "Filtro ativo" else "Filtro inativo"
+            }
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                icone,
+                contentDescription = null,
+                tint = tinta,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                "$numero",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White,
+                maxLines = 1
+            )
+        }
+        Text(
+            rotulo,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            maxLines = 1
+        )
+        Text(
+            sub,
+            fontSize = 10.sp,
+            color = Color.White.copy(alpha = 0.70f),
+            maxLines = 1
+        )
+    }
+}
+
+/** Avatar-letra 52dp por status (§4.5.1): borda 2dp + fundo 16% + inicial 20sp Black. */
+@Composable
+private fun AvatarEstoque(
+    inicial: String,
     nome: String,
     fotoPath: String?,
     temFoto: Boolean,
-    anel: Color,
-    interThumb: MutableInteractionSource,
+    status: StatusValidade,
+    escuro: Boolean,
+    inter: MutableInteractionSource,
     calmo: Boolean,
-    escuro: Boolean = false,
     onAmpliar: () -> Unit
 ) {
-    val moldura = Modifier
-        .size(64.dp)
-        .border(3.dp, anel, CircleShape)
-        .clip(CircleShape)
-    val escuroThumb = escuro
-    val fundoVazio = if (escuroThumb) CartaoEcom else Nevoa
-    val tintaVazia = if (escuroThumb) MutedEcom else PetroleoSec
-    if (temFoto) {
-        val bitmap = remember(fotoPath) {
-            FotoStore.decodificarAmostrado(fotoPath!!)
+    val borda: Color
+    val fundo: Color
+    val letra: Color
+    when (status) {
+        StatusValidade.FRESCO -> {
+            borda = if (escuro) MentaEcom else TurquesaProfunda
+            fundo = if (escuro) MentaEcom.copy(alpha = 0.16f) else NevoaTurquesa
+            letra = borda
+        }
+        StatusValidade.ATENCAO -> {
+            borda = AmbarEcom
+            fundo = if (escuro) AmbarEcom.copy(alpha = 0.20f) else Color(0xFFFFF3D6)
+            letra = if (escuro) AmbarEcom else Color(0xFF8A5A00)
+        }
+        StatusValidade.VENCIDO -> {
+            borda = if (escuro) VermelhoNoite else VermelhoQueimado
+            fundo = if (escuro) VermelhoNoite.copy(alpha = 0.20f) else RosaQueimadoFundo
+            letra = borda
+        }
+        StatusValidade.SEM_VALIDADE -> {
+            borda = if (escuro) MutedEcom else PetroleoSec
+            fundo = if (escuro) CartaoEcom else Nevoa
+            letra = borda
+        }
+    }
+    val rotuloA11y = when (status) {
+        StatusValidade.VENCIDO -> "vencido"
+        StatusValidade.ATENCAO -> "atenção"
+        StatusValidade.FRESCO -> "fresco"
+        StatusValidade.SEM_VALIDADE -> "sem validade"
+    }
+    Box(
+        modifier = Modifier
+            .size(52.dp)
+            .border(2.dp, borda, CircleShape)
+            .clip(CircleShape)
+            .background(fundo, CircleShape)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Status $rotuloA11y de $nome"
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        // Foto (quando há) dentro do mesmo círculo 52dp, borda de status
+        // por cima; toque amplia no diálogo 28dp existente.
+        val bitmap = if (temFoto) {
+            remember(fotoPath) { FotoStore.decodificarAmostrado(fotoPath!!) }
+        } else {
+            null
         }
         if (bitmap != null) {
             Image(
                 bitmap = bitmap.asImageBitmap(),
                 contentDescription = "Foto de $nome. Toque para ampliar",
-                modifier = moldura
-                    .escalaPress(interThumb, calmo)
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(CircleShape)
+                    .escalaPress(inter, calmo)
                     .clickable(
-                        interactionSource = interThumb,
+                        interactionSource = inter,
                         indication = androidx.compose.foundation.LocalIndication.current,
                         onClickLabel = "Ampliar foto de $nome"
                     ) { onAmpliar() }
             )
         } else {
-            Box(
-                modifier = moldura.background(fundoVazio, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Filled.Image,
-                    contentDescription = null,
-                    modifier = Modifier.size(28.dp),
-                    tint = tintaVazia
-                )
-            }
-        }
-    } else {
-        Box(
-            modifier = moldura.background(fundoVazio, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Filled.Image,
-                contentDescription = null,
-                modifier = Modifier.size(28.dp),
-                tint = tintaVazia
+            Text(
+                inicial,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Black,
+                color = letra,
+                maxLines = 1
             )
         }
     }
