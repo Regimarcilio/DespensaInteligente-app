@@ -630,7 +630,8 @@ fun EstoqueScreen(
                 .padding(pad)
                 .padding(horizontal = 16.dp)
         ) {
-            Spacer(Modifier.height(12.dp))
+            // Issue #17: topo com menos espaço morto (12→8dp); respiro mantido.
+            Spacer(Modifier.height(8.dp))
             Text(
                 "${itens.size} ${if (itens.size == 1) "item" else "itens"} no estoque",
                 style = MaterialTheme.typography.titleMedium
@@ -640,7 +641,8 @@ fun EstoqueScreen(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(Modifier.height(8.dp))
+            // Issue #17: cabeçalho→card mais junto (8→6dp), sem colar.
+            Spacer(Modifier.height(6.dp))
             OutlinedTextField(
                 value = busca,
                 onValueChange = vm::buscar,
@@ -664,7 +666,8 @@ fun EstoqueScreen(
                     unfocusedBorderColor = if (escuro) BordaNoiteAzul else LinhaAzul
                 )
             )
-            Spacer(Modifier.height(8.dp))
+            // Issue #17: cabeçalho→card mais junto (8→6dp), sem colar.
+            Spacer(Modifier.height(6.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(LOCAIS_FILTRO) { (rotulo, local) ->
                     // E06 — FilterChip pílula com press scale (interactionSource próprio).
@@ -706,7 +709,8 @@ fun EstoqueScreen(
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            // Issue #17: cabeçalho→card mais junto (8→6dp), sem colar.
+            Spacer(Modifier.height(6.dp))
             // Filtro por status (port web 5d974e1): Todos/Frescos/Atenção/
             // Vencidos com contadores, combinando com busca + local.
             // Contadores vêm da lista observada (pós busca+local).

@@ -62,6 +62,18 @@ import br.com.despensa.presentation.theme.corTextoSelo
 import br.com.despensa.presentation.theme.sombraFeira
 
 /**
+ * Issue #16 (puro, testável em JVM): subtítulo fixo de utilidade do card
+ * "Listar" + descrição TalkBack completa. Texto único p/ visível e
+ * acessibilidade — sem mudar comportamento/navegação do card.
+ */
+const val SUBTITULO_LISTAR = "Escolha itens do estoque para a Lista de Compras"
+
+fun descricaoCardListar(totalItens: Int): String =
+    "Listar. $SUBTITULO_LISTAR. " +
+        "$totalItens ${if (totalItens == 1) "item no estoque" else "itens no estoque"}. " +
+        "Toque no mais para montar a Lista de Compras."
+
+/**
  * Issue #10 (spec aceita 11/10): card verde "Listar" abaixo do Controle de
  * Frescor, com botão "+" no mesmo padrão do card acima. Tocar no "+" abre a
  * nova tela com os itens em blocos; adicionar lá coloca na Lista de Compras.
@@ -92,8 +104,7 @@ fun CardListar(
             .clickable(onClickLabel = "Abrir tela Listar com itens em blocos") { onAbrir() }
             .padding(16.dp)
             .semantics(mergeDescendants = true) {
-                contentDescription =
-                    "Listar. $totalItens itens no estoque. Toque no mais para montar a Lista de Compras."
+                contentDescription = descricaoCardListar(totalItens)
             }
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -105,12 +116,22 @@ fun CardListar(
                     color = Color.White,
                     maxLines = 1
                 )
+                // Issue #16: subtítulo fixo de utilidade (visível + TalkBack) —
+                // sem mudar comportamento/navegação do card.
+                Text(
+                    SUBTITULO_LISTAR,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    color = Color.White.copy(alpha = 0.92f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
                 Spacer(Modifier.height(2.dp))
                 Text(
                     "$totalItens ${if (totalItens == 1) "item no estoque" else "itens no estoque"} • toque no +",
                     fontSize = 12.sp,
                     color = Color.White.copy(alpha = 0.80f),
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
