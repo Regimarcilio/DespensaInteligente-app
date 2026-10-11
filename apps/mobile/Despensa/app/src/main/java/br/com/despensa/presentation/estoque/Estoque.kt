@@ -247,6 +247,16 @@ fun aplicarFiltroStatus(
     }.getOrDefault(emptyList())
 }
 
+/**
+ * Issue #15 (pura, testavel em JVM): toggle do bloco tocado.
+ * Tocar no bloco ativo limpa (null); tocar noutro troca. Sem regra nova —
+ * so o vaivem que a spec §4.2 previa (`vm.filtrarStatus(...)` no toque).
+ */
+fun proximoFiltroStatus(
+    atual: StatusValidade?,
+    tocado: StatusValidade?
+): StatusValidade? = if (atual == tocado) null else tocado
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class EstoqueViewModel @Inject constructor(
@@ -314,6 +324,16 @@ class EstoqueViewModel @Inject constructor(
     fun filtrar(local: LocalEstoque?) { filtroLocal.value = local }
     fun filtrarStatus(status: StatusValidade?) { filtroStatus.value = status }
     fun limparFiltroStatus() { filtroStatus.value = null }
+
+    /**
+     * Issue #15 (§4.2): toque no mini-card filtra (toggle) reaproveitando o
+     * filtro existente, sem regra nova. Log sem PII (só o status).
+     */
+    fun alternarFiltroStatus(tocado: StatusValidade?) {
+        val proximo = proximoFiltroStatus(filtroStatus.value, tocado)
+        filtroStatus.value = proximo
+        Log.d(TAG_ESTOQUE, "filtro status alternado")
+    }
 
     fun salvar(
         nome: String,
@@ -676,7 +696,7 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                     val chipBorda = if (escuro) BordaNoiteAzul else LinhaAzul
                     FilterChip(
                         selected = sel,
-                        onClick = { vm.filtrarStatus(if (sel) null else status) },
+                        onClick = { vm.alternarFiltroStatus(status) },
                         label = {
                             Text(
                                 textoChip,
@@ -741,9 +761,7 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                 escuro = escuro,
                 calmo = calmo,
                 filtroStatus = filtroStatus,
-                onFiltrarStatus = { st ->
-                    vm.filtrarStatus(if (filtroStatus == st) null else st)
-                }
+                onFiltrarStatus = { st -> vm.alternarFiltroStatus(st) }
             )
             Spacer(Modifier.height(12.dp))
             if (mostrandoSkeleton) {
