@@ -164,12 +164,14 @@ import br.com.despensa.presentation.theme.sombraFeira
 import br.com.despensa.presentation.theme.specCalma
 import br.com.despensa.presentation.scan.FluxoScanCodigo
 import dagger.hilt.android.lifecycle.HiltViewModel
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -226,6 +228,25 @@ fun contarValidade(itens: List<EstoqueEntity>, agora: Long = System.currentTimeM
     return ContadoresValidade(f, a, v)
 }
 
+/** Tag de log defensivo da tela Estoque (issue #14: nunca logar PII/nomes). */
+private const val TAG_ESTOQUE = "EstoqueVM"
+
+/**
+ * Issue #14/#15 (pura, testavel em JVM): aplica o filtro de status em memoria
+ * sobre a lista observada (port do matchStatus web). Null = todos.
+ * Nunca lanca: lista vazia entra e vazia sai (estado vazio amigavel).
+ */
+fun aplicarFiltroStatus(
+    lista: List<EstoqueEntity>,
+    status: StatusValidade?,
+    agora: Long = System.currentTimeMillis()
+): List<EstoqueEntity> {
+    if (status == null) return lista
+    return runCatching {
+        lista.filter { statusValidade(it.validade, agora) == status }
+    }.getOrDefault(emptyList())
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class EstoqueViewModel @Inject constructor(
@@ -256,26 +277,38 @@ class EstoqueViewModel @Inject constructor(
 
     // Base observada do DAO (busca + local, sem migration). O filtro de
     // status é aplicado EM MEMÓRIA sobre ela (port do matchStatus web).
+    // Issue #14: queries null-safe separadas (sem bind de null no converter)
+    // + catch defensivo: excecao silenciosa nunca congela a tela — emite
+    // lista vazia e o UI cai no estado vazio amigavel. Log sem PII (só contagem).
     val itens: StateFlow<List<EstoqueEntity>> =
-        combine(busca, filtroLocal) { b, l -> b to l }
-            .flatMapLatest { (b, l) -> dao.observar(b.trim(), l) }
+        combine(busca, filtroLocal) { b, l -> b.trim() to l }
+            .flatMapLatest { (b, l) ->
+                if (l == null) dao.observarTodas(b) else dao.observarPorLocal(b, l)
+            }
+            .catch { e ->
+                Log.e(TAG_ESTOQUE, "observar estoque falhou; emitindo vazio", e)
+                emit(emptyList())
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Semáforo sobre a lista observada (pós busca+local, pré status). */
     @OptIn(ExperimentalCoroutinesApi::class)
     val contadores: StateFlow<ContadoresValidade> =
-        itens.map { contarValidade(it) }
+        itens.map { runCatching { contarValidade(it) }.getOrDefault(ContadoresValidade()) }
+            .catch { e ->
+                Log.e(TAG_ESTOQUE, "contar validade falhou; emitindo zerado", e)
+                emit(ContadoresValidade())
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ContadoresValidade())
 
     /** Lista visível = observada + status em memória (combina os 3 filtros). */
     val itensVisiveis: StateFlow<List<EstoqueEntity>> =
-        combine(itens, filtroStatus) { lista, st ->
-            if (st == null) lista
-            else {
-                val agora = System.currentTimeMillis()
-                lista.filter { statusValidade(it.validade, agora) == st }
+        combine(itens, filtroStatus) { lista, st -> aplicarFiltroStatus(lista, st) }
+            .catch { e ->
+                Log.e(TAG_ESTOQUE, "filtro status falhou; emitindo vazio", e)
+                emit(emptyList())
             }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun buscar(texto: String) { busca.value = texto }
     fun filtrar(local: LocalEstoque?) { filtroLocal.value = local }
@@ -291,20 +324,25 @@ class EstoqueViewModel @Inject constructor(
         precoRef: Double?,
         fotoPath: String? = null
     ) = viewModelScope.launch {
-        dao.upsert(
-            EstoqueEntity(
-                nome = nome.trim(),
-                quantidade = quantidade,
-                unidade = unidade,
-                validade = validade,
-                local = local,
-                fotoPath = fotoPath,
-                precoRef = precoRef
+        runCatching {
+            dao.upsert(
+                EstoqueEntity(
+                    nome = nome.trim(),
+                    quantidade = quantidade,
+                    unidade = unidade,
+                    validade = validade,
+                    local = local,
+                    fotoPath = fotoPath,
+                    precoRef = precoRef
+                )
             )
-        )
+        }.onFailure { e -> Log.e(TAG_ESTOQUE, "salvar item falhou", e) }
     }
 
-    fun remover(id: String) = viewModelScope.launch { dao.remover(id) }
+    fun remover(id: String) = viewModelScope.launch {
+        runCatching { dao.remover(id) }
+            .onFailure { e -> Log.e(TAG_ESTOQUE, "remover item falhou", e) }
+    }
 
     /**
      * Paridade web v2.0 (Editar Item): upsert com o MESMO id/createdAt
@@ -320,17 +358,19 @@ class EstoqueViewModel @Inject constructor(
         precoRef: Double?,
         fotoPath: String? = null
     ) = viewModelScope.launch {
-        dao.upsert(
-            original.copy(
-                nome = nome.trim(),
-                quantidade = quantidade,
-                unidade = unidade,
-                validade = validade,
-                local = local,
-                fotoPath = fotoPath,
-                precoRef = precoRef
+        runCatching {
+            dao.upsert(
+                original.copy(
+                    nome = nome.trim(),
+                    quantidade = quantidade,
+                    unidade = unidade,
+                    validade = validade,
+                    local = local,
+                    fotoPath = fotoPath,
+                    precoRef = precoRef
+                )
             )
-        )
+        }.onFailure { e -> Log.e(TAG_ESTOQUE, "salvar edicao falhou", e) }
     }
 
     /**
@@ -339,16 +379,18 @@ class EstoqueViewModel @Inject constructor(
      */
     fun darBaixa(item: EstoqueEntity, motivo: MotivoBaixa, aoFeito: (String) -> Unit) =
         viewModelScope.launch {
-            baixaDao.registrar(
-                BaixaEntity(
-                    nome = item.nome,
-                    quantidade = item.quantidade,
-                    unidade = item.unidade,
-                    valorTotal = valorTotalBaixa(item.quantidade, item.precoRef),
-                    motivo = motivo
+            runCatching {
+                baixaDao.registrar(
+                    BaixaEntity(
+                        nome = item.nome,
+                        quantidade = item.quantidade,
+                        unidade = item.unidade,
+                        valorTotal = valorTotalBaixa(item.quantidade, item.precoRef),
+                        motivo = motivo
+                    )
                 )
-            )
-            dao.remover(item.id)
+                dao.remover(item.id)
+            }.onFailure { e -> Log.e(TAG_ESTOQUE, "dar baixa falhou", e); return@launch }
             aoFeito(
                 if (motivo == MotivoBaixa.CONSUMIDO) "${item.nome} consumido ✅"
                 else "${item.nome} descartado 🗑️"
@@ -760,7 +802,11 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                 }
             } else {
                 // FIX FAB: 96dp p/ nunca cobrir o 3º contador/cards.
+                // Issue #14: weight(1f) — LazyColumn dentro de Column sem peso
+                // perde a virtualizacao e mede todos os itens de uma vez
+                // (jank/trava com fotos). Com peso, ocupa só o restante e rola.
                 LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
                     contentPadding = PaddingValues(bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -1207,7 +1253,9 @@ private fun EstoqueCard(
     // Diálogo com a foto ampliada (issue #1): 28dp, foto retangular 24dp.
     if (ampliada && temFoto) {
         val grande = remember(item.fotoPath) {
-            FotoStore.decodificarAmostrado(item.fotoPath!!, 1024)
+            runCatching { FotoStore.decodificarAmostrado(item.fotoPath!!, 1024) }
+                .onFailure { e -> Log.w(TAG_ESTOQUE, "foto ampliada ilegivel", e) }
+                .getOrNull()
         }
         val escuroDialogo = escuro
         AlertDialog(
@@ -1519,8 +1567,14 @@ private fun AvatarEstoque(
     ) {
         // Foto (quando há) dentro do mesmo círculo 52dp, borda de status
         // por cima; toque amplia no diálogo 28dp existente.
+        // Issue #14: decode defensivo — I/O em composicao nunca pode
+        // derrubar a lista; falha vira avatar-letra + log (sem PII).
         val bitmap = if (temFoto) {
-            remember(fotoPath) { FotoStore.decodificarAmostrado(fotoPath!!) }
+            remember(fotoPath) {
+                runCatching { FotoStore.decodificarAmostrado(fotoPath!!) }
+                    .onFailure { e -> Log.w(TAG_ESTOQUE, "foto do card ilegivel; usando letra", e) }
+                    .getOrNull()
+            }
         } else {
             null
         }
@@ -1818,9 +1872,12 @@ private fun DialogoCadastro(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     val mini = remember(fotoPath) {
-                        fotoPath?.takeIf { FotoStore.fotoExiste(it) }?.let {
-                            FotoStore.decodificarAmostrado(it)
-                        }
+                        runCatching {
+                            fotoPath?.takeIf { FotoStore.fotoExiste(it) }?.let {
+                                FotoStore.decodificarAmostrado(it)
+                            }
+                        }.onFailure { e -> Log.w(TAG_ESTOQUE, "miniatura ilegivel", e) }
+                            .getOrNull()
                     }
                     if (mini != null) {
                         Image(
