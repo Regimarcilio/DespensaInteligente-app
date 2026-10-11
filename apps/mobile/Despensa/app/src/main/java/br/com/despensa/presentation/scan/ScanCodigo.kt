@@ -2,6 +2,8 @@ package br.com.despensa.presentation.scan
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.util.Log
+import android.util.Size
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -57,13 +59,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import br.com.despensa.domain.JANELA_DEBOUNCE_SCAN_MS
+import br.com.despensa.domain.deveAceitarLeitura
 import br.com.despensa.domain.ehCodigoValido
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 
 private enum class PassoScan { CHECANDO, RATIONALE, ESCANEANDO }
+
+/** Tag Logcat do scanner (issue #11b: falha interna gera log, sem silêncio total). */
+private const val TAG_SCAN = "ScanCodigo"
+
+/** A cada N resultados vazios, um Log.d de "ainda procurando" (evita spam no logcat). */
+private const val LOG_A_CADA_N_VAZIOS = 60
 
 /**
  * Fluxo do scanner EAN (issue #3, S5): rationale próprio de CAMERA →
@@ -170,6 +178,9 @@ private fun TelaScanner(
     // Debounce (issue #9a, ≤2s do AC): 1 leitura aceita por janela
     // (evita disparo duplo do analyzer; constante testada em JVM).
     val ultimoEnvio = remember { longArrayOf(0L) }
+    // Issue #11b: conta resultados vazios p/ log de "ainda procurando"
+    // (diagnostica preview-ok-mas-sem-leitura sem encher o logcat).
+    val resultadosVazios = remember { intArrayOf(0) }
 
     val leitor = remember {
         BarcodeScanning.getClient(
@@ -215,7 +226,12 @@ private fun TelaScanner(
                             val preview = Preview.Builder().build().also {
                                 it.surfaceProvider = visor.surfaceProvider
                             }
+                            // Issue #11: 1280x720 no analysis — a resolução padrão
+                            // do ImageAnalysis é baixa p/ EAN-13 a distância
+                            // normal (preview bonito mas ML Kit sem pixel
+                            // suficiente = zero leituras no aparelho físico).
                             val analise = ImageAnalysis.Builder()
+                                .setTargetResolution(Size(1280, 720))
                                 .setBackpressureStrategy(
                                     ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
                                 )
@@ -227,17 +243,72 @@ private fun TelaScanner(
                                     ImageAnalysis.COORDINATE_SYSTEM_VIEW_REFERENCED,
                                     executor
                                 ) { resultado ->
-                                    val achados = resultado.getValue(leitor)
-                                    val bruto = achados
-                                        ?.firstOrNull { it.rawValue != null }
-                                        ?.rawValue
-                                    if (bruto != null && ehCodigoValido(bruto)) {
-                                        val agora = System.currentTimeMillis()
-                                        if (agora - ultimoEnvio[0] > JANELA_DEBOUNCE_SCAN_MS) {
-                                            ultimoEnvio[0] = agora
-                                            lendo = true
-                                            onCodigoLido(bruto)
+                                    // Issue #11b: try/catch + logs em todo ramo —
+                                    // exceção aqui matava o pipeline sem rastro
+                                    // (silêncio total). EAN é código de produto,
+                                    // não PII: seguro p/ Logcat.
+                                    try {
+                                        val achados = resultado.getValue(leitor)
+                                        if (achados.isNullOrEmpty()) {
+                                            resultadosVazios[0]++
+                                            if (resultadosVazios[0] %
+                                                LOG_A_CADA_N_VAZIOS == 0
+                                            ) {
+                                                Log.d(
+                                                    TAG_SCAN,
+                                                    "Procurando EAN… " +
+                                                        resultadosVazios[0] +
+                                                        " resultados vazios " +
+                                                        "(preview ok, enquadre o " +
+                                                        "código na moldura)"
+                                                )
+                                            }
+                                            return@MlKitAnalyzer
                                         }
+                                        resultadosVazios[0] = 0
+                                        val bruto = achados
+                                            .firstOrNull { it.rawValue != null }
+                                            ?.rawValue
+                                        if (bruto == null) {
+                                            Log.d(
+                                                TAG_SCAN,
+                                                "ML Kit achou " + achados.size +
+                                                    " código(s) mas sem rawValue"
+                                            )
+                                            return@MlKitAnalyzer
+                                        }
+                                        val agora = System.currentTimeMillis()
+                                        if (!deveAceitarLeitura(
+                                                agora,
+                                                ultimoEnvio[0],
+                                                bruto
+                                            )
+                                        ) {
+                                            Log.d(
+                                                TAG_SCAN,
+                                                "Leitura descartada: tam=" +
+                                                    bruto.length + " valido=" +
+                                                    ehCodigoValido(bruto) +
+                                                    " debounceMs=" +
+                                                    (agora - ultimoEnvio[0])
+                                            )
+                                            return@MlKitAnalyzer
+                                        }
+                                        ultimoEnvio[0] = agora
+                                        lendo = true
+                                        Log.i(
+                                            TAG_SCAN,
+                                            "EAN lido (tam=" + bruto.length +
+                                                "), preenchendo o campo"
+                                        )
+                                        onCodigoLido(bruto)
+                                    } catch (e: Exception) {
+                                        Log.e(
+                                            TAG_SCAN,
+                                            "Erro interno no analyzer do " +
+                                                "scanner (leitura perdida)",
+                                            e
+                                        )
                                     }
                                 }
                             )
@@ -248,7 +319,18 @@ private fun TelaScanner(
                                 preview,
                                 analise
                             )
-                        } catch (_: Exception) {
+                            Log.i(
+                                TAG_SCAN,
+                                "Câmera ligada: preview + analysis " +
+                                    "1280x720 (KEEP_ONLY_LATEST)"
+                            )
+                        } catch (e: Exception) {
+                            Log.e(
+                                TAG_SCAN,
+                                "Falha ao ligar câmera/bind dos " +
+                                    "use-cases (fallback manual)",
+                                e
+                            )
                             semCamera = true
                         }
                     }, executor)

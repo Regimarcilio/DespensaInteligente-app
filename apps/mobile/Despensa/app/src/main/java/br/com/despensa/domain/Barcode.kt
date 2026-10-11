@@ -81,6 +81,17 @@ fun validarUpcA(codigo: String): Boolean {
     return validarEan13("0$digitos")
 }
 
+/**
+ * Issue #11: decisão de aceite de UMA leitura do analyzer (pura, testável em
+ * JVM). Retorna true só se o código é válido no varejo BR **e** a janela de
+ * debounce expirou — o `TelaScanner` usa esta função, então o descarte
+ * (inválido ou debounce) é centralizado aqui e coberto por teste.
+ */
+fun deveAceitarLeitura(agoraMs: Long, ultimoEnvioMs: Long, bruto: String): Boolean {
+    if (!ehCodigoValido(bruto)) return false
+    return agoraMs - ultimoEnvioMs > JANELA_DEBOUNCE_SCAN_MS
+}
+
 /** Aceito pelo scanner no varejo BR: EAN-13, EAN-8 ou UPC-A com dígito válido. */
 fun ehCodigoValido(codigo: String): Boolean {
     val digitos = normalizarCodigo(codigo)

@@ -35,3 +35,24 @@
   → próprio código. Salvar com EAN lido vira aprendizado (AC 9c). Online segue OUT.
 - **Evidência**: `./gradlew :app:assembleDebug :app:testDebugUnitTest` VERDE —
   64 testes 0 falhas (BarcodeTest 16/16), SAST sem segredos, sem permissão nova.
+
+## Issue #11 (scan não lê no aparelho físico)
+- **Causa primária**: `ImageAnalysis` sem `setTargetResolution` — a resolução
+  padrão do analysis é baixa p/ EAN-13 a distância normal (preview bonito, mas
+  ML Kit sem pixel suficiente = zero leituras). Fix: `Size(1280, 720)` +
+  `STRATEGY_KEEP_ONLY_LATEST`.
+- **Causa do silêncio total (AC b)**: callback do `MlKitAnalyzer` sem
+  try/catch (exceção matava o pipeline sem rastro) + `catch (_: Exception)` do
+  bind sem `Log.e` + descarte de inválido/debounce sem log. Fix: `TAG_SCAN` +
+  `Log.d/i/e` em todo ramo (vazio throttled a cada 60, sem-rawValue, descarte
+  com tam/valido/debounceMs, sucesso, exceção), `Log.e` no bind, `Log.i` no
+  bind ok. EAN é código de produto (não PII) — seguro p/ Logcat.
+- **Suspeitos ELIMINADOS**: `barcode-scanning:17.3.0` é BUNDLED (modelo embutido
+  no APK ~41MB, imediato e offline; `meta-data DEPENDENCIES` só vale p/ a
+  variante Play Services/unbundled) e preview+analysis estão ambos no
+  `bindToLifecycle` (bind correto; preview visível confirma).
+- **Domínio puro testável**: `deveAceitarLeitura(agoraMs, ultimoEnvioMs, bruto)`
+  centraliza validade+debounce do analyzer; `BarcodeTest` cobre aceite,
+  recusa no debounce e recusa de inválido (AC #11 em JVM).
+- **Evidência**: `./gradlew :app:assembleDebug :app:testDebugUnitTest` VERDE —
+  67 testes 0 falhas (BarcodeTest 19/19), SAST por grep limpo. Refs #11.

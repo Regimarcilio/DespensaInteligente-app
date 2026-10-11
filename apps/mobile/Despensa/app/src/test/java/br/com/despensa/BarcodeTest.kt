@@ -1,6 +1,7 @@
 package br.com.despensa
 
 import br.com.despensa.domain.JANELA_DEBOUNCE_SCAN_MS
+import br.com.despensa.domain.deveAceitarLeitura
 import br.com.despensa.domain.SEMENTE_CATALOGO_EAN
 import br.com.despensa.domain.deveMostrarDialogoCadastro
 import br.com.despensa.domain.digitoEan13
@@ -127,6 +128,23 @@ class BarcodeTest {
             "Meu Guaraná 7894900011517",
             sugerirNomeCatalogo("7894900011517", nomes, emptyMap())
         )
+    }
+
+    // Issue #11 (AC a/b): aceite do analyzer — válido + fora do debounce.
+    @Test fun `aceita leitura valida fora do debounce`() {
+        assertTrue(deveAceitarLeitura(5000L, 0L, "7894900011517"))
+    }
+
+    // Issue #11 (debounce): repetição imediata é descartada (sem duplo envio).
+    @Test fun `recusa leitura valida dentro do debounce`() {
+        assertFalse(deveAceitarLeitura(1000L, 0L, "7894900011517"))
+        assertFalse(deveAceitarLeitura(1500L, 0L, "7894900011517"))
+    }
+
+    // Issue #11 (validade): código inválido nunca é aceito, mesmo sem debounce.
+    @Test fun `recusa codigo invalido mesmo fora do debounce`() {
+        assertFalse(deveAceitarLeitura(5000L, 0L, "123"))
+        assertFalse(deveAceitarLeitura(5000L, 0L, "7894900011518"))
     }
 
     // Issue #9c: EAN desconhecido → digita o nome e lembra na próxima.
