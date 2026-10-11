@@ -95,6 +95,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -132,6 +133,7 @@ import br.com.despensa.domain.diasParaVencer
 import br.com.despensa.domain.formatarReais
 import br.com.despensa.domain.statusValidade
 import br.com.despensa.data.local.prefs.CatalogoEanPrefs
+import br.com.despensa.domain.chaveLista
 import br.com.despensa.domain.deveMostrarDialogoCadastro
 import br.com.despensa.domain.sugerirNomeCatalogo
 import br.com.despensa.domain.validarCadastro
@@ -162,6 +164,7 @@ import br.com.despensa.presentation.theme.escalaPress
 import br.com.despensa.presentation.theme.lembrarMovimentoReduzido
 import br.com.despensa.presentation.theme.sombraFeira
 import br.com.despensa.presentation.theme.specCalma
+import br.com.despensa.presentation.lista.ListaViewModel
 import br.com.despensa.presentation.scan.FluxoScanCodigo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import android.util.Log
@@ -501,7 +504,11 @@ fun emojiLocal(local: LocalEstoque): String = when (local) {
 }
 
 @Composable
-fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = false) {
+fun EstoqueScreen(
+    vm: EstoqueViewModel = hiltViewModel(),
+    vmLista: ListaViewModel = hiltViewModel(),
+    escuro: Boolean = false
+) {
     val brutos by vm.itens.collectAsState()
     val itens by vm.itensVisiveis.collectAsState()
     val busca by vm.buscaAtual.collectAsState()
@@ -510,6 +517,10 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
     val contadores by vm.contadores.collectAsState()
     // Issue #9: mapa EAN → nome aprendidos (DataStore) p/ o lookup local.
     val aprendidos by vm.catalogo.collectAsState()
+    // Issue #10: mesma instancia da aba Lista (owner Activity) — adicionar
+    // aqui reflete na Lista de Compras sem regra nova.
+    val sugestoesLista by vmLista.sugestoes.collectAsState()
+    var listarAberto by rememberSaveable { mutableStateOf(false) }
     // HeroFrescor (§4.2): valor em estoque = mesma soma do subtítulo
     // (MainActivity) — só leitura p/ UI, sem regra nova.
     val valorEstoque = brutos.sumOf {
@@ -551,6 +562,29 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
 
     fun avisar(msg: String) {
         escopo.launch { snackbar.showSnackbar(msg) }
+    }
+
+    // Issue #10: tela dedicada (nao dialogo, nao overlay) — substitui o
+    // conteudo, sem empilhar telas. Voltar fecha sem perder o Estoque.
+    if (listarAberto) {
+        ListarScreen(
+            itens = brutos,
+            nomesNaLista = sugestoesLista.map { chaveLista(it.nome) }.toSet(),
+            escuro = escuro,
+            onAdicionar = { item ->
+                val entrou = vmLista.adicionarDoEstoque(
+                    item.nome, item.quantidade, item.unidade, item.precoRef
+                )
+                if (entrou) {
+                    Log.d(TAG_ESTOQUE, "item enviado a lista de compras")
+                    avisar("\"${item.nome}\" na Lista de Compras ✅")
+                } else {
+                    avisar("\"${item.nome}\" já está na lista")
+                }
+            },
+            onVoltar = { listarAberto = false }
+        )
+        return
     }
 
     Scaffold(
@@ -762,6 +796,16 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                 calmo = calmo,
                 filtroStatus = filtroStatus,
                 onFiltrarStatus = { st -> vm.alternarFiltroStatus(st) }
+            )
+            Spacer(Modifier.height(12.dp))
+            // Issue #10 (spec 11/10): card verde "Listar" + "+" → tela dedicada.
+            CardListar(
+                totalItens = brutos.size,
+                escuro = escuro,
+                onAbrir = {
+                    Log.d(TAG_ESTOQUE, "abrir Listar")
+                    listarAberto = true
+                }
             )
             Spacer(Modifier.height(12.dp))
             if (mostrandoSkeleton) {

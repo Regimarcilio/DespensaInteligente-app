@@ -79,6 +79,7 @@ import br.com.despensa.domain.ItemReposicao
 import br.com.despensa.domain.diasParaVencer
 import br.com.despensa.domain.formatarReais
 import br.com.despensa.domain.gerarTexto
+import br.com.despensa.domain.podeAdicionarNaLista
 import br.com.despensa.presentation.theme.Dur
 import br.com.despensa.presentation.theme.EsqueletoCard
 import br.com.despensa.presentation.theme.AmbarEcom
@@ -192,6 +193,29 @@ class ListaViewModel @Inject constructor(
         _sugestoes.value = listOf(
             Sugestao(limpo, 1.0, "un", null, OrigemSugestao.MANUAL, marcada = true)
         ) + _sugestoes.value
+    }
+
+    /**
+     * Issue #10: item tocado na tela Listar entra na Lista de Compras pela
+     * via MANUAL (topo, já marcado), com qtd/un/preço do Estoque preservados.
+     * Sem regra nova: RN-003/gerarTexto intactos; vazio/duplicado recusados
+     * ([podeAdicionarNaLista]). Retorna true se entrou.
+     */
+    fun adicionarDoEstoque(
+        nome: String,
+        quantidade: Double = 1.0,
+        unidade: String = "un",
+        precoUnit: Double? = null
+    ): Boolean {
+        val nomes = _sugestoes.value.map { it.nome }
+        if (!podeAdicionarNaLista(nomes, nome)) return false
+        val limpo = nome.trim()
+        val qtd = quantidade.takeIf { it > 0 } ?: 1.0
+        val un = unidade.trim().ifBlank { "un" }
+        _sugestoes.value = listOf(
+            Sugestao(limpo, qtd, un, precoUnit?.takeIf { it > 0 }, OrigemSugestao.MANUAL, marcada = true)
+        ) + _sugestoes.value
+        return true
     }
 
     /** Paridade web v2.0 (removerItem): tira a sugestão da lista (memória). */
