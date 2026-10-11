@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WarningAmber
@@ -130,6 +131,7 @@ import br.com.despensa.domain.StatusValidade
 import br.com.despensa.domain.diasParaVencer
 import br.com.despensa.domain.formatarReais
 import br.com.despensa.domain.statusValidade
+import br.com.despensa.domain.nomeSugeridoPara
 import br.com.despensa.domain.validarCadastro
 import br.com.despensa.domain.valorTotalBaixa
 import br.com.despensa.presentation.theme.AmbarEcom
@@ -158,6 +160,7 @@ import br.com.despensa.presentation.theme.escalaPress
 import br.com.despensa.presentation.theme.lembrarMovimentoReduzido
 import br.com.despensa.presentation.theme.sombraFeira
 import br.com.despensa.presentation.theme.specCalma
+import br.com.despensa.presentation.scan.FluxoScanCodigo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -435,6 +438,10 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
     var dialogoAberto by remember { mutableStateOf(false) }
     // Paridade web v2.0 (itemEmEdicao): null = novo; não-nulo = editar.
     var editando by remember { mutableStateOf<EstoqueEntity?>(null) }
+    // Issue #3: scanner EAN como overlay sobre o cadastro — o diálogo
+    // segue aberto atrás para receber o nome pré-preenchido (AC1).
+    var escaneando by remember { mutableStateOf(false) }
+    var codigoScan by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val escopo = rememberCoroutineScope()
     val calmo = lembrarMovimentoReduzido()
@@ -788,7 +795,7 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
 
     if (dialogoAberto) {
         DialogoCadastro(
-            onFechar = { dialogoAberto = false; editando = null },
+            onFechar = { dialogoAberto = false; editando = null; codigoScan = null },
             onSalvar = { nome, qtd, un, val_, local, preco, foto ->
                 val alvo = editando
                 if (alvo != null) {
@@ -798,10 +805,23 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                 }
                 editando = null
                 dialogoAberto = false
+                codigoScan = null
             },
             editando = editando,
             calmo = calmo,
-            escuro = escuro
+            escuro = escuro,
+            codigoEscaneado = codigoScan,
+            nomesExistentes = brutos.map { it.nome },
+            onPedirScan = { escaneando = true }
+        )
+    }
+
+    // Issue #3: overlay do scanner (rationale CAMERA + preview ML Kit). Volta
+    // sem código (negou/sem câmera) = cai no manual, sem crash (AC2).
+    if (escaneando) {
+        FluxoScanCodigo(
+            onCodigoLido = { codigoScan = it; escaneando = false },
+            onFechar = { escaneando = false }
         )
     }
 }
@@ -1513,7 +1533,11 @@ private fun DialogoCadastro(
     onSalvar: (nome: String, qtd: Double, unidade: String, validade: Long?, local: LocalEstoque, precoRef: Double?, fotoPath: String?) -> Unit,
     editando: EstoqueEntity? = null,
     calmo: Boolean = false,
-    escuro: Boolean = false
+    escuro: Boolean = false,
+    // Issue #3: código lido no scanner + nomes em memória p/ lookup local.
+    codigoEscaneado: String? = null,
+    nomesExistentes: List<String> = emptyList(),
+    onPedirScan: () -> Unit = {}
 ) {
     // Paridade web v2.0 (itemEditando): pré-preenche quando editando.
     val editId = editando?.id
@@ -1535,6 +1559,14 @@ private fun DialogoCadastro(
     val interFoto = remember { MutableInteractionSource() }
     val interGaleria = remember { MutableInteractionSource() }
     val campo16 = RoundedCornerShape(16.dp)
+
+    // Issue #3 (AC1): EAN lido pré-preenche o nome; a chave garante 1
+    // aplicação por código — a edição manual posterior é do usuário.
+    LaunchedEffect(codigoEscaneado) {
+        if (!codigoEscaneado.isNullOrBlank()) {
+            nome = nomeSugeridoPara(codigoEscaneado, nomesExistentes)
+        }
+    }
 
     // Issue #1: TakePicture SEM permissão CAMERA — Uri FileProvider p/ o app de câmera.
     var fotoTemp: java.io.File? by remember { mutableStateOf(null) }
@@ -1597,6 +1629,24 @@ private fun DialogoCadastro(
         title = { Text(if (editando != null) "Editar Item" else "Novo Item na Despensa", style = MaterialTheme.typography.titleLarge) },
         text = {
             Column {
+                // Issue #3 (AC1): "Adicionar" → "Escanear código" → nome
+                // pré-preenchido, concluindo o cadastro em 1 toque.
+                OutlinedButton(
+                    onClick = onPedirScan,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            onClick(label = "Escanear código de barras", action = null)
+                        }
+                ) {
+                    Icon(
+                        Icons.Filled.QrCodeScanner,
+                        contentDescription = null
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Escanear código", fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = nome,
                     onValueChange = { nome = it },

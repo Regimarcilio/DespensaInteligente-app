@@ -2,6 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Sprint 2 (RF-002/NFR-005): alerta local de validade. Sem FCM, sem foto, sem backup. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Issue #3 (S5): scanner EAN precisa de preview contínuo (CameraX + ML Kit).
+         TakePicture da issue #1 continua sem exigir CAMERA; só o scanner pede.
+         required=false: aparelho sem câmera instala e usa o cadastro manual. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <application
         android:name=".DespensaApp"
         android:label="Despensa"
