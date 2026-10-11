@@ -23,3 +23,15 @@
 - **Arquivos**: `domain/Barcode.kt` (novo), `presentation/scan/ScanCodigo.kt`
   (novo), `BarcodeTest.kt` (novo), `Estoque.kt` (diálogo+overlay),
   `AndroidManifest.xml` (CAMERA), `libs.versions.toml` + `build.gradle.kts` (deps).
+
+## Issues #8/#9 (fix na branch ISSUE, PR #7)
+- **#8 overlay**: `DialogoCadastro` (AlertDialog = janela própria) ficava por cima
+  do preview. Fix: `deveMostrarDialogoCadastro(dialogoAberto, escaneando)`
+  (domínio puro, testado em JVM) — com o scanner aberto o diálogo oculta;
+  `onCodigoLido`/`onFechar` reabre limpo, sem crash, sem tela presa.
+- **#9 catálogo local**: `sugerirNomeCatalogo(codigo, memoria, aprendidos, seed)`
+  — prioridade aprendidos (DataStore `CatalogoEanPrefs`, sem migration Room)
+  → nomes em memória (legado #3) → `SEMENTE_CATALOGO_EAN` (3 EAN-13 validados)
+  → próprio código. Salvar com EAN lido vira aprendizado (AC 9c). Online segue OUT.
+- **Evidência**: `./gradlew :app:assembleDebug :app:testDebugUnitTest` VERDE —
+  64 testes 0 falhas (BarcodeTest 16/16), SAST sem segredos, sem permissão nova.

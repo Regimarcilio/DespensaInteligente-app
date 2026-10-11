@@ -131,7 +131,9 @@ import br.com.despensa.domain.StatusValidade
 import br.com.despensa.domain.diasParaVencer
 import br.com.despensa.domain.formatarReais
 import br.com.despensa.domain.statusValidade
-import br.com.despensa.domain.nomeSugeridoPara
+import br.com.despensa.data.local.prefs.CatalogoEanPrefs
+import br.com.despensa.domain.deveMostrarDialogoCadastro
+import br.com.despensa.domain.sugerirNomeCatalogo
 import br.com.despensa.domain.validarCadastro
 import br.com.despensa.domain.valorTotalBaixa
 import br.com.despensa.presentation.theme.AmbarEcom
@@ -228,7 +230,8 @@ fun contarValidade(itens: List<EstoqueEntity>, agora: Long = System.currentTimeM
 @HiltViewModel
 class EstoqueViewModel @Inject constructor(
     private val dao: EstoqueDao,
-    private val baixaDao: BaixaDao
+    private val baixaDao: BaixaDao,
+    private val catalogoEan: CatalogoEanPrefs
 ) : ViewModel() {
     private val busca = MutableStateFlow("")
     private val filtroLocal = MutableStateFlow<LocalEstoque?>(null)
@@ -237,6 +240,19 @@ class EstoqueViewModel @Inject constructor(
     val buscaAtual: StateFlow<String> = busca
     val filtroAtual: StateFlow<LocalEstoque?> = filtroLocal
     val filtroStatusAtual: StateFlow<StatusValidade?> = filtroStatus
+
+    /**
+     * Issue #9: EAN → nome aprendidos (DataStore, sem migration Room).
+     * Seed curado mora no domínio; aqui só o aprendizado do usuário.
+     */
+    val catalogo: StateFlow<Map<String, String>> =
+        catalogoEan.aprendidos
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /** Issue #9c: lembra o nome digitado para o EAN (próxima leitura sugere). */
+    fun lembrarEan(codigo: String, nome: String) = viewModelScope.launch {
+        catalogoEan.lembrar(codigo, nome)
+    }
 
     // Base observada do DAO (busca + local, sem migration). O filtro de
     // status é aplicado EM MEMÓRIA sobre ela (port do matchStatus web).
@@ -430,6 +446,8 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
     val filtro by vm.filtroAtual.collectAsState()
     val filtroStatus by vm.filtroStatusAtual.collectAsState()
     val contadores by vm.contadores.collectAsState()
+    // Issue #9: mapa EAN → nome aprendidos (DataStore) p/ o lookup local.
+    val aprendidos by vm.catalogo.collectAsState()
     // HeroFrescor (§4.2): valor em estoque = mesma soma do subtítulo
     // (MainActivity) — só leitura p/ UI, sem regra nova.
     val valorEstoque = brutos.sumOf {
@@ -793,7 +811,10 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
         }
     }
 
-    if (dialogoAberto) {
+    // Issue #8: diálogo oculto com o scanner aberto (AlertDialog cobre o
+    // preview — z-order de janela própria). Preview fica em tela cheia com a
+    // mira; ao voltar (onCodigoLido/onFechar) o diálogo reaparece limpo.
+    if (deveMostrarDialogoCadastro(dialogoAberto, escaneando)) {
         DialogoCadastro(
             onFechar = { dialogoAberto = false; editando = null; codigoScan = null },
             onSalvar = { nome, qtd, un, val_, local, preco, foto ->
@@ -802,6 +823,12 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                     vm.salvarEdicao(alvo, nome, qtd, un, val_, local, preco, foto)
                 } else {
                     vm.salvar(nome, qtd, un, val_, local, preco, foto)
+                }
+                // Issue #9c: EAN escaneado + nome confirmado = aprendizado local
+                // (lembrado na próxima leitura, sem migration, sem rede).
+                val eanLido = codigoScan
+                if (eanLido != null) {
+                    vm.lembrarEan(eanLido, nome)
                 }
                 editando = null
                 dialogoAberto = false
@@ -812,6 +839,7 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
             escuro = escuro,
             codigoEscaneado = codigoScan,
             nomesExistentes = brutos.map { it.nome },
+            catalogoAprendido = aprendidos,
             onPedirScan = { escaneando = true }
         )
     }
@@ -1534,9 +1562,11 @@ private fun DialogoCadastro(
     editando: EstoqueEntity? = null,
     calmo: Boolean = false,
     escuro: Boolean = false,
-    // Issue #3: código lido no scanner + nomes em memória p/ lookup local.
+    // Issue #3/#9: código lido no scanner + lookup local (memória + seed +
+    // aprendidos DataStore, offline-first, sem migration, sem rede).
     codigoEscaneado: String? = null,
     nomesExistentes: List<String> = emptyList(),
+    catalogoAprendido: Map<String, String> = emptyMap(),
     onPedirScan: () -> Unit = {}
 ) {
     // Paridade web v2.0 (itemEditando): pré-preenche quando editando.
@@ -1560,11 +1590,13 @@ private fun DialogoCadastro(
     val interGaleria = remember { MutableInteractionSource() }
     val campo16 = RoundedCornerShape(16.dp)
 
-    // Issue #3 (AC1): EAN lido pré-preenche o nome; a chave garante 1
-    // aplicação por código — a edição manual posterior é do usuário.
+    // Issue #3/#9 (AC1): EAN lido pré-preenche o nome via catálogo local
+    // (aprendidos → memória → seed → próprio código); a chave garante 1
+    // aplicação por código — a edição manual posterior é do usuário e, ao
+    // salvar, vira aprendizado (AC 9c).
     LaunchedEffect(codigoEscaneado) {
         if (!codigoEscaneado.isNullOrBlank()) {
-            nome = nomeSugeridoPara(codigoEscaneado, nomesExistentes)
+            nome = sugerirNomeCatalogo(codigoEscaneado, nomesExistentes, catalogoAprendido)
         }
     }
 

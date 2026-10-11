@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import br.com.despensa.domain.JANELA_DEBOUNCE_SCAN_MS
 import br.com.despensa.domain.ehCodigoValido
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -166,7 +167,8 @@ private fun TelaScanner(
     val executor = remember { ContextCompat.getMainExecutor(contexto) }
     var semCamera by remember { mutableStateOf(false) }
     var lendo by remember { mutableStateOf(false) }
-    // Debounce: 1 leitura aceita a cada 1,5s (evita disparo duplo do analyzer).
+    // Debounce (issue #9a, ≤2s do AC): 1 leitura aceita por janela
+    // (evita disparo duplo do analyzer; constante testada em JVM).
     val ultimoEnvio = remember { longArrayOf(0L) }
 
     val leitor = remember {
@@ -231,7 +233,7 @@ private fun TelaScanner(
                                         ?.rawValue
                                     if (bruto != null && ehCodigoValido(bruto)) {
                                         val agora = System.currentTimeMillis()
-                                        if (agora - ultimoEnvio[0] > 1500) {
+                                        if (agora - ultimoEnvio[0] > JANELA_DEBOUNCE_SCAN_MS) {
                                             ultimoEnvio[0] = agora
                                             lendo = true
                                             onCodigoLido(bruto)
