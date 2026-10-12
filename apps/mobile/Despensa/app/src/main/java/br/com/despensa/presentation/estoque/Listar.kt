@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,16 +31,21 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,21 +67,30 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.despensa.data.local.entity.EstoqueEntity
+import br.com.despensa.data.local.entity.LocalEstoque
 import br.com.despensa.domain.StatusValidade
 import br.com.despensa.domain.chaveLista
 import br.com.despensa.domain.diasParaVencer
 import br.com.despensa.domain.formatarReais
 import br.com.despensa.domain.statusValidade
 import br.com.despensa.presentation.theme.AmbarEcom
+import br.com.despensa.presentation.theme.BordaNoiteAzul
+import br.com.despensa.presentation.theme.CartaoEcom
+import br.com.despensa.presentation.theme.LaranjaEcom
 import br.com.despensa.presentation.theme.LaranjaQueimada
+import br.com.despensa.presentation.theme.LinhaAzul
 import br.com.despensa.presentation.theme.MentaEcom
+import br.com.despensa.presentation.theme.MutedEcom
+import br.com.despensa.presentation.theme.NeveEcom
 import br.com.despensa.presentation.theme.NevoaTurquesa
+import br.com.despensa.presentation.theme.PetroleoSec
 import br.com.despensa.presentation.theme.RosaQueimadoFundo
 import br.com.despensa.presentation.theme.TurquesaProfunda
 import br.com.despensa.presentation.theme.VermelhoNoite
 import br.com.despensa.presentation.theme.VermelhoQueimado
 import br.com.despensa.presentation.theme.corFundoSelo
 import br.com.despensa.presentation.theme.corTextoSelo
+import br.com.despensa.presentation.theme.escalaPress
 import br.com.despensa.presentation.theme.sombraFeira
 
 /**
@@ -193,6 +209,11 @@ fun mensagemRemocaoListar(nome: String): String =
  * Nova tela dedicada (não diálogo, não overlay): itens do Estoque em blocos
  * com dados expostos (nome, qtd, local • preço, pílula de validade + data).
  * Cada bloco tem "Adicionar" → entra na Lista de Compras (via MANUAL).
+ *
+ * Issue #25: busca + chips de status/locais vivem AQUI (port fiel do Estoque
+ * — mesmas regras, contadores e semântica; o estado segue no
+ * EstoqueViewModel, só mudou de lugar). Os itens exibidos já vêm filtrados;
+ * o hero do Estoque abre esta tela já filtrada (toggle #15 mantido).
  */
 @Composable
 fun ListarScreen(
@@ -208,7 +229,19 @@ fun ListarScreen(
     onEditar: (EstoqueEntity) -> Unit = {},
     onConsumir: (EstoqueEntity) -> Unit = {},
     onDescartar: (EstoqueEntity) -> Unit = {},
-    onRemover: (EstoqueEntity) -> Unit = {}
+    onRemover: (EstoqueEntity) -> Unit = {},
+    // Issue #25: estado de filtro (hospedado no EstoqueViewModel).
+    busca: String = "",
+    filtroLocal: LocalEstoque? = null,
+    filtroStatus: StatusValidade? = null,
+    contadores: ContadoresValidade = ContadoresValidade(),
+    totalBrutos: Int = itens.size,
+    onBuscar: (String) -> Unit = {},
+    onFiltrarLocal: (LocalEstoque?) -> Unit = {},
+    onAlternarStatus: (StatusValidade?) -> Unit = {},
+    onLimparStatus: () -> Unit = {},
+    onLimparFiltros: () -> Unit = {},
+    calmo: Boolean = false
 ) {
     // Issue #18: voltar físico/gesto volta ao Estoque sem perder estado
     // (mesmos ViewModels; só fecha a tela Listar).
@@ -251,18 +284,189 @@ fun ListarScreen(
             }
         }
         Spacer(Modifier.height(8.dp))
+        // Issue #25: busca (port fiel do Estoque — mesma aparência e semântica).
+        OutlinedTextField(
+            value = busca,
+            onValueChange = onBuscar,
+            placeholder = { Text("Buscar no estoque...") },
+            leadingIcon = {
+                Icon(
+                    Icons.Filled.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { contentDescription = "Buscar no estoque" },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                focusedBorderColor = if (escuro) MentaEcom else TurquesaProfunda,
+                unfocusedBorderColor = if (escuro) BordaNoiteAzul else LinhaAzul
+            )
+        )
+        Spacer(Modifier.height(6.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(LOCAIS_FILTRO) { (rotulo, local) ->
+                // E06 — FilterChip pílula com press scale (interactionSource próprio).
+                val interChip = remember(rotulo) { MutableInteractionSource() }
+                val sel = filtroLocal == local
+                val chipFundo = if (escuro) CartaoEcom else NeveEcom
+                val chipBorda = if (escuro) BordaNoiteAzul else LinhaAzul
+                FilterChip(
+                    selected = sel,
+                    onClick = { onFiltrarLocal(local) },
+                    label = {
+                        Text(
+                            rotulo,
+                            maxLines = 1,
+                            color = if (sel) Color.White else if (escuro) MutedEcom else PetroleoSec
+                        )
+                    },
+                    interactionSource = interChip,
+                    modifier = Modifier
+                        .escalaPress(interChip, calmo)
+                        .semantics {
+                            contentDescription = "Filtrar local: $rotulo"
+                        },
+                    shape = CircleShape,
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = TurquesaProfunda,
+                        selectedLabelColor = Color.White,
+                        containerColor = chipFundo
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = sel,
+                        borderColor = chipBorda,
+                        selectedBorderColor = TurquesaProfunda,
+                        disabledBorderColor = chipBorda,
+                        borderWidth = 1.dp,
+                        selectedBorderWidth = 1.dp
+                    )
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        // Filtro por status (port web 5d974e1): Todos/Frescos/Atenção/
+        // Vencidos com contadores, combinando com busca + local.
+        // Contadores vêm da lista observada (pós busca+local).
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(FILTROS_STATUS) { (rotulo, status) ->
+                val interChip = remember("status-$rotulo") { MutableInteractionSource() }
+                val sel = filtroStatus == status
+                val qtd = when (status) {
+                    null -> totalBrutos
+                    StatusValidade.FRESCO -> contadores.frescos
+                    StatusValidade.ATENCAO -> contadores.atencao
+                    StatusValidade.VENCIDO -> contadores.vencidos
+                    // Issue #25: ramo morto herdado do Estoque (FILTROS_STATUS
+                    // não tem SEM_VALIDADE) — 0 sem precisar da lista bruta.
+                    StatusValidade.SEM_VALIDADE -> 0
+                }
+                val textoChip = "$rotulo ($qtd)"
+                val chipFundo = if (escuro) CartaoEcom else NeveEcom
+                val chipBorda = if (escuro) BordaNoiteAzul else LinhaAzul
+                FilterChip(
+                    selected = sel,
+                    onClick = { onAlternarStatus(status) },
+                    label = {
+                        Text(
+                            textoChip,
+                            maxLines = 1,
+                            color = if (sel) Color.White else if (escuro) MutedEcom else PetroleoSec
+                        )
+                    },
+                    interactionSource = interChip,
+                    modifier = Modifier
+                        .escalaPress(interChip, calmo)
+                        .semantics {
+                            contentDescription = "Filtrar por status: $rotulo, $qtd itens"
+                        },
+                    shape = CircleShape,
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = TurquesaProfunda,
+                        selectedLabelColor = Color.White,
+                        containerColor = chipFundo
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = sel,
+                        borderColor = chipBorda,
+                        selectedBorderColor = TurquesaProfunda,
+                        disabledBorderColor = chipBorda,
+                        borderWidth = 1.dp,
+                        selectedBorderWidth = 1.dp
+                    )
+                )
+            }
+        }
+        // Faixa do filtro ativo (eco do chip removível web em EstoqueView).
+        if (filtroStatus != null) {
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${itens.size} ${if (itens.size == 1) "item" else "itens"} com filtro " +
+                        when (filtroStatus) {
+                            StatusValidade.FRESCO -> "FRESCOS"
+                            StatusValidade.ATENCAO -> "ATENÇÃO"
+                            StatusValidade.VENCIDO -> "VENCIDOS"
+                            else -> ""
+                        },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = LaranjaEcom,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(
+                    onClick = onLimparStatus,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Limpar filtro de status"
+                    }
+                ) { Text("Limpar") }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        val filtrando = busca.isNotBlank() || filtroLocal != null || filtroStatus != null
         if (itens.isEmpty()) {
             Column(modifier = Modifier.padding(vertical = 24.dp)) {
-                Text(
-                    "Nada para listar",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Cadastre itens no Estoque para montar sua Lista de Compras.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (filtrando) {
+                    Text(
+                        "Nenhum item encontrado",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        when {
+                            busca.isNotBlank() || filtroLocal != null ->
+                                "Tente ajustar os filtros de busca ou localização."
+                            else ->
+                                "Nenhum item neste status. Toque em Limpar."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        onClick = onLimparFiltros,
+                        modifier = Modifier.semantics {
+                            contentDescription = "Limpar todos os filtros"
+                        }
+                    ) { Text("Limpar filtros") }
+                } else {
+                    Text(
+                        "Nada para listar",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Cadastre itens no Estoque para montar sua Lista de Compras.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         } else {
             LazyColumn(
