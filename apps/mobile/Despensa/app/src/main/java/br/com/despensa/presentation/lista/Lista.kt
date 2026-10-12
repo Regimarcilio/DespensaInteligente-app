@@ -19,8 +19,13 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,7 +34,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -44,6 +51,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,7 +61,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -66,13 +73,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import br.com.despensa.data.foto.FotoStore
 import br.com.despensa.data.local.dao.BaixaDao
 import br.com.despensa.data.local.dao.EstoqueDao
 import br.com.despensa.domain.ItemReposicao
@@ -112,7 +128,12 @@ data class Sugestao(
     val unidade: String,
     val precoUnit: Double?,
     val origem: OrigemSugestao,
-    val marcada: Boolean = false
+    val marcada: Boolean = false,
+    /**
+     * Issue #19: thumb do bloco compacto (foto do Estoque quando há).
+     * Só exibição — RN-003/gerarTexto/exportação intactos.
+     */
+    val fotoPath: String? = null
 )
 
 /**
@@ -164,7 +185,8 @@ class ListaViewModel @Inject constructor(
                     quantidade = it.quantidade,
                     unidade = it.unidade,
                     precoUnit = it.precoRef,
-                    origem = OrigemSugestao.VALIDADE
+                    origem = OrigemSugestao.VALIDADE,
+                    fotoPath = it.fotoPath
                 )
             }
         // Preserva marcação/qtd de quem já estava na tela ao recarregar.
@@ -175,7 +197,8 @@ class ListaViewModel @Inject constructor(
             val chave = nova.nome.trim().lowercase()
             anteriores[chave]?.copy(
                 quantidade = anteriores[chave]!!.quantidade,
-                marcada = anteriores[chave]!!.marcada
+                marcada = anteriores[chave]!!.marcada,
+                fotoPath = nova.fotoPath ?: anteriores[chave]!!.fotoPath
             ) ?: nova.copy(marcada = true)
         }
         val chavesNovas = novas.map { it.nome.trim().lowercase() }.toSet()
@@ -250,6 +273,60 @@ class ListaViewModel @Inject constructor(
 
 private fun formatarQtd(qtd: Double): String =
     if (qtd % 1.0 == 0.0) qtd.toInt().toString() else qtd.toString()
+
+/**
+ * Issue #19 (puro, testável em JVM): emoji do thumb quando a sugestão não
+ * tem foto (consumo/manual). Mapa por palavra-chave; genérico 🛒 por padrão.
+ * Só exibição — sem regra de reposição.
+ */
+fun emojiSugestao(nome: String): String {
+    val n = nome.trim().lowercase()
+    return when {
+        "manteiga" in n -> "🧈"
+        "queijo" in n || "muçarela" in n || "mucarela" in n -> "🧀"
+        "leite" in n || "iogurte" in n -> "🥛"
+        "ovo" in n -> "🥚"
+        "pão" in n || "pao" in n -> "🍞"
+        "café" in n || "cafe" in n -> "☕"
+        "arroz" in n -> "🍚"
+        "feij" in n -> "🫘"
+        "carne" in n || "bife" in n -> "🥩"
+        "frango" in n -> "🍗"
+        "peixe" in n || "atum" in n || "sardinha" in n -> "🐟"
+        "maçã" in n || "maca" in n -> "🍎"
+        "banana" in n -> "🍌"
+        "alface" in n || "verdura" in n || "salada" in n -> "🥬"
+        "tomate" in n -> "🍅"
+        "batata" in n -> "🥔"
+        "cenoura" in n -> "🥕"
+        "cebola" in n -> "🧅"
+        "macarr" in n || "espaguete" in n || "lasanha" in n -> "🍝"
+        "biscoito" in n || "bolacha" in n -> "🍪"
+        "chocolate" in n -> "🍫"
+        "refrigerante" in n || "coca" in n || "guaran" in n -> "🥤"
+        "água" in n || "agua" in n -> "💧"
+        "cerveja" in n -> "🍺"
+        "vinho" in n -> "🍷"
+        "presunto" in n || "mortadela" in n -> "🥓"
+        "açúcar" in n || "acucar" in n || n == "sal" || " sal" in n -> "🧂"
+        "óleo" in n || "oleo" in n || "azeite" in n -> "🫗"
+        "farinha" in n -> "🌾"
+        "sabão" in n || "sabao" in n || "detergente" in n -> "🧼"
+        "papel" in n -> "🧻"
+        else -> "🛒"
+    }
+}
+
+/**
+ * Issue #19 (puro, testável em JVM): descrição TalkBack do bloco compacto —
+ * nome + qtd/un (+ preço quando houver) + estado de marcação.
+ */
+fun descricaoSugestao(s: Sugestao): String = buildString {
+    append("${s.nome.trim()}, ${formatarQtd(s.quantidade)} ${s.unidade}")
+    val preco = s.precoUnit
+    if (preco != null && preco > 0) append(", R$ ${formatarReais(preco)}")
+    append(if (s.marcada) ", marcado para consumo" else ", não marcado")
+}
 
 @Composable
 fun ListaScreen(vm: ListaViewModel = hiltViewModel(), escuro: Boolean = false) {
@@ -567,110 +644,200 @@ private fun SugestaoCard(
     // E06 — stepper − / + com press scale.
     val interMenos = remember(sugestao.nome) { MutableInteractionSource() }
     val interMais = remember(sugestao.nome) { MutableInteractionSource() }
+    val rotuloOrigem = when (sugestao.origem) {
+        OrigemSugestao.CONSUMO -> "CONSUMO"
+        OrigemSugestao.VALIDADE -> "VENCE EM 7D"
+        OrigemSugestao.MANUAL -> "MANUAL"
+    }
 
+    // Issue #19 (image/8.png como MODELO): 1 bloco COMPACTO por item — topo
+    // com thumb (foto/emoji 56dp) + nome + qtd/un (+ preço), divisor, linha de
+    // ação (check + origem + stepper −/+ + lixeira). Sem altura mínima, sem
+    // espaço morto (wrap content; o 7.jpg mostra o fora-do-padrão: card
+    // gigante vazio com ações espremidas). Stepper fluxa no mesmo
+    // passo()/ajustarQtd — RN-003/exportação intactos.
     OutlinedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .sombraFeira(escuro, RoundedCornerShape(24.dp))
+            .sombraFeira(escuro, RoundedCornerShape(20.dp))
             .animateContentSize(
                 animationSpec = specCalma(
                     spring(stiffness = 300f, dampingRatio = 0.7f),
                     calmo
                 )
-            ),
-        shape = RoundedCornerShape(24.dp),
+            )
+            .semantics(mergeDescendants = false) {
+                contentDescription = descricaoSugestao(sugestao)
+            },
+        shape = RoundedCornerShape(20.dp),
         border = BorderStroke(
             if (sugestao.marcada) 1.5.dp else 1.dp,
             corBorda
         ),
         colors = CardDefaults.outlinedCardColors(containerColor = corFundo)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(12.dp)
         ) {
-            // Checkbox verde-feia quando marcado.
-            Checkbox(
-                checked = sugestao.marcada,
-                onCheckedChange = { onAlternar() },
-                colors = CheckboxDefaults.colors(
-                    checkedColor = verdeMarcado,
-                    checkmarkColor = if (escuro) NoiteEcom else androidx.compose.ui.graphics.Color.White
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ThumbSugestao(
+                    fotoPath = sugestao.fotoPath,
+                    nome = sugestao.nome,
+                    escuro = escuro
                 )
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    sugestao.nome,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    maxLines = 2
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Chip de origem em pílula calma (sem pop): CONSUMO =
-                    // NevoaTurquesa/CartaoEcom + Turquesa; VENCE EM 7D = Ambar +
-                    // TintaMaré/NoiteEcom; MANUAL = outline neutro (port web).
-                    val chipFundo = when (sugestao.origem) {
-                        OrigemSugestao.CONSUMO -> if (escuro) CartaoEcom else NevoaTurquesa
-                        OrigemSugestao.VALIDADE -> AmbarEcom
-                        OrigemSugestao.MANUAL -> androidx.compose.ui.graphics.Color.Transparent
-                    }
-                    val corTextoChip = when (sugestao.origem) {
-                        OrigemSugestao.CONSUMO -> verdeMarcado
-                        OrigemSugestao.VALIDADE -> if (escuro) NoiteEcom else TintaMare
-                        OrigemSugestao.MANUAL -> MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                    Surface(
-                        color = chipFundo,
-                        contentColor = corTextoChip,
-                        shape = CircleShape,
-                        border = if (sugestao.origem == OrigemSugestao.MANUAL)
-                            BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null
-                    ) {
-                        Text(
-                            when (sugestao.origem) {
-                                OrigemSugestao.CONSUMO -> "CONSUMO"
-                                OrigemSugestao.VALIDADE -> "VENCE EM 7D"
-                                OrigemSugestao.MANUAL -> "MANUAL"
-                            },
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            letterSpacing = 0.5.sp,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                        )
-                    }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        sugestao.nome,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "📦 ${formatarQtd(sugestao.quantidade)} ${sugestao.unidade}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     sugestao.precoUnit?.takeIf { it > 0 }?.let {
-                        Spacer(Modifier.width(6.dp))
                         Text(
-                            "R$ ${formatarReais(it)}/${sugestao.unidade}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            "R$ ${formatarReais(it)}",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = verdeMarcado,
+                            maxLines = 1
                         )
                     }
                 }
             }
-            IconButton(
-                onClick = onMenos,
-                interactionSource = interMenos,
-                modifier = Modifier.escalaPress(interMenos, calmo)
-            ) { Text("−", fontWeight = FontWeight.Bold) }
-            Text(
-                "${formatarQtd(sugestao.quantidade)}${sugestao.unidade}",
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 8.dp),
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
             )
-            IconButton(
-                onClick = onMais,
-                interactionSource = interMais,
-                modifier = Modifier.escalaPress(interMais, calmo)
-            ) { Text("+", fontWeight = FontWeight.Bold) }
-            // Paridade web v2.0 (lixeira por item).
-            IconButton(onClick = onRemover) {
-                Icon(
-                    Icons.Filled.Delete,
-                    contentDescription = "Remover ${sugestao.nome} da lista",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = sugestao.marcada,
+                    onCheckedChange = { onAlternar() },
+                    modifier = Modifier.semantics {
+                        onClick(label = "Alternar seleção de ${sugestao.nome}", action = null)
+                    },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = verdeMarcado,
+                        checkmarkColor = if (escuro) NoiteEcom else androidx.compose.ui.graphics.Color.White
+                    )
                 )
+                // Rótulo de origem em texto (padrão 8.png, sem pílula): também
+                // alterna a seleção (alvo de toque maior + TalkBack direto).
+                Text(
+                    rotuloOrigem,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    letterSpacing = 0.5.sp,
+                    color = verdeMarcado,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clickable(onClickLabel = "Alternar seleção de ${sugestao.nome}") { onAlternar() }
+                        .padding(horizontal = 4.dp, vertical = 8.dp)
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(
+                    onClick = onMenos,
+                    interactionSource = interMenos,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                        .escalaPress(interMenos, calmo)
+                        .semantics {
+                            contentDescription = "Diminuir quantidade de ${sugestao.nome}"
+                        }
+                ) { Text("−", fontWeight = FontWeight.Bold) }
+                Text(
+                    "${formatarQtd(sugestao.quantidade)}${sugestao.unidade}",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .widthIn(min = 56.dp)
+                        .semantics {
+                            contentDescription =
+                                "Quantidade: ${formatarQtd(sugestao.quantidade)} ${sugestao.unidade}"
+                        }
+                )
+                IconButton(
+                    onClick = onMais,
+                    interactionSource = interMais,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                        .escalaPress(interMais, calmo)
+                        .semantics {
+                            contentDescription = "Aumentar quantidade de ${sugestao.nome}"
+                        }
+                ) { Text("+", fontWeight = FontWeight.Bold) }
+                // Paridade web v2.0 (lixeira por item).
+                IconButton(onClick = onRemover) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = "Remover ${sugestao.nome} da lista",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
+        }
+    }
+}
+
+/**
+ * Issue #19 (image/8.png): thumb 56dp do bloco compacto — foto do Estoque
+ * quando há, senão emoji por palavra-chave ([emojiSugestao]). Decode
+ * defensivo (falha vira emoji, nunca derruba a lista).
+ */
+@Composable
+private fun ThumbSugestao(
+    fotoPath: String?,
+    nome: String,
+    escuro: Boolean
+) {
+    val temFoto = FotoStore.fotoExiste(fotoPath)
+    val bitmap = if (temFoto) {
+        remember(fotoPath) {
+            runCatching { FotoStore.decodificarAmostrado(fotoPath!!) }.getOrNull()
+        }
+    } else {
+        null
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(16.dp))
+        )
+    } else {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (escuro) CartaoEcom else NevoaTurquesa),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                emojiSugestao(nome),
+                fontSize = 28.sp,
+                maxLines = 1
+            )
         }
     }
 }
