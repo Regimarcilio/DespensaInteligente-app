@@ -112,10 +112,13 @@ fun CardListar(
     escuro: Boolean,
     onAbrir: () -> Unit
 ) {
+    // Issue #16 (reabertura 12/10, image/6.jpg): altura mínima real 72dp
+    // (56dp do "+" + 16dp de padding vertical) + padding vertical folgado —
+    // mesmo sob medida apertada o texto nunca corta e o "+" nunca transborda.
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 64.dp)
+            .heightIn(min = 72.dp)
             .background(
                 Brush.linearGradient(
                     colors = listOf(TurquesaProfunda, Color(0xFF0E7C6B))
@@ -130,7 +133,7 @@ fun CardListar(
                 ) else Modifier
             )
             .clickable(onClickLabel = "Abrir tela Listar com itens em blocos") { onAbrir() }
-            .padding(start = 20.dp, top = 8.dp, bottom = 8.dp, end = 8.dp)
+            .padding(start = 20.dp, top = 12.dp, bottom = 12.dp, end = 8.dp)
             .semantics(mergeDescendants = true) {
                 contentDescription = descricaoCardListar(totalItens)
             },

@@ -907,92 +907,101 @@ fun EstoqueScreen(
                     ) { Text("Limpar") }
                 }
             }
-            HeroFrescor(
-                totalItens = brutos.size,
-                valorEstoque = valorEstoque,
-                frescos = contadores.frescos,
-                atencao = contadores.atencao,
-                vencidos = contadores.vencidos,
-                escuro = escuro,
-                calmo = calmo,
-                filtroStatus = filtroStatus,
-                onFiltrarStatus = { st -> vm.alternarFiltroStatus(st) }
-            )
-            Spacer(Modifier.height(12.dp))
-            // Issue #10 (spec 11/10): card verde "Listar" + "+" → tela dedicada.
-            CardListar(
-                totalItens = brutos.size,
-                escuro = escuro,
-                onAbrir = {
-                    Log.d(TAG_ESTOQUE, "abrir Listar")
-                    listarAberto = true
+            // Issue #16 (reabertura 12/10, image/6.jpg): hero + card Listar
+            // vivem DENTRO do LazyColumn como header. Na Column fixa, telas
+            // curtas mediam o card com maxHeight minúsculo — texto cortado,
+            // "+" transbordando sobre o hero, card espremido contra a nav.
+            // Como item, medem com altura livre (nunca espremem) e rolam junto
+            // se precisar. Respiro hero→card 10dp; bottom 96dp acima da nav.
+            // Destino/fluxo Listar (#10/#18) intactos.
+            // FIX FAB: 96dp p/ nunca cobrir o 3º contador/cards.
+            // Issue #14: weight(1f) — LazyColumn dentro de Column sem peso
+            // perde a virtualizacao e mede todos os itens de uma vez
+            // (jank/trava com fotos). Com peso, ocupa só o restante e rola.
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentPadding = PaddingValues(top = 2.dp, bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item(key = "hero") {
+                    HeroFrescor(
+                        totalItens = brutos.size,
+                        valorEstoque = valorEstoque,
+                        frescos = contadores.frescos,
+                        atencao = contadores.atencao,
+                        vencidos = contadores.vencidos,
+                        escuro = escuro,
+                        calmo = calmo,
+                        filtroStatus = filtroStatus,
+                        onFiltrarStatus = { st -> vm.alternarFiltroStatus(st) }
+                    )
                 }
-            )
-            Spacer(Modifier.height(12.dp))
-            if (mostrandoSkeleton) {
-                // E08 — 3 fantasmas com shimmer (estáticos com calmo).
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    repeat(3) {
+                // Issue #10 (spec 11/10): card verde "Listar" + "+" → tela dedicada.
+                item(key = "listar") {
+                    CardListar(
+                        totalItens = brutos.size,
+                        escuro = escuro,
+                        onAbrir = {
+                            Log.d(TAG_ESTOQUE, "abrir Listar")
+                            listarAberto = true
+                        }
+                    )
+                }
+                if (mostrandoSkeleton) {
+                    // E08 — 3 fantasmas com shimmer (estáticos com calmo).
+                    items(3) {
                         EsqueletoCard(calmo = calmo, escuro = escuro, descricao = "Carregando estoque")
                     }
-                }
-            } else if (itens.isEmpty()) {
-                // Paridade web v2.0 (empty-state EstoqueView): título + texto
-                // condicional + CTA "Adicionar Alimento".
-                Column(modifier = Modifier.padding(vertical = 24.dp)) {
-                    val filtrando = busca.isNotBlank() || filtro != null || filtroStatus != null
-                    Text(
-                        "Nenhum item encontrado",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        when {
-                            busca.isNotBlank() || filtro != null ->
-                                "Tente ajustar os filtros de busca ou localização."
-                            filtroStatus != null ->
-                                "Nenhum item neste status. Toque em Limpar."
-                            else ->
-                                "Sua despensa está vazia. Adicione seu primeiro alimento para começar a controlar validades!"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    if (filtrando) {
-                        TextButton(
-                            onClick = {
-                                vm.buscar("")
-                                vm.filtrar(null)
-                                vm.limparFiltroStatus()
-                            },
-                            modifier = Modifier.semantics {
-                                contentDescription = "Limpar todos os filtros"
-                            }
-                        ) { Text("Limpar filtros") }
-                    } else {
-                        Button(
-                            onClick = {
-                                editando = null
-                                dialogoAberto = true
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = TurquesaProfunda,
-                                contentColor = Color.White
+                } else if (itens.isEmpty()) {
+                    item(key = "vazio") {
+                        // Paridade web v2.0 (empty-state EstoqueView): título + texto
+                        // condicional + CTA "Adicionar Alimento".
+                        Column(modifier = Modifier.padding(vertical = 24.dp)) {
+                            val filtrando = busca.isNotBlank() || filtro != null || filtroStatus != null
+                            Text(
+                                "Nenhum item encontrado",
+                                style = MaterialTheme.typography.titleMedium
                             )
-                        ) { Text("Adicionar Alimento", fontWeight = FontWeight.Bold) }
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                when {
+                                    busca.isNotBlank() || filtro != null ->
+                                        "Tente ajustar os filtros de busca ou localização."
+                                    filtroStatus != null ->
+                                        "Nenhum item neste status. Toque em Limpar."
+                                    else ->
+                                        "Sua despensa está vazia. Adicione seu primeiro alimento para começar a controlar validades!"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            if (filtrando) {
+                                TextButton(
+                                    onClick = {
+                                        vm.buscar("")
+                                        vm.filtrar(null)
+                                        vm.limparFiltroStatus()
+                                    },
+                                    modifier = Modifier.semantics {
+                                        contentDescription = "Limpar todos os filtros"
+                                    }
+                                ) { Text("Limpar filtros") }
+                            } else {
+                                Button(
+                                    onClick = {
+                                        editando = null
+                                        dialogoAberto = true
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = TurquesaProfunda,
+                                        contentColor = Color.White
+                                    )
+                                ) { Text("Adicionar Alimento", fontWeight = FontWeight.Bold) }
+                            }
+                        }
                     }
-                }
-            } else {
-                // FIX FAB: 96dp p/ nunca cobrir o 3º contador/cards.
-                // Issue #14: weight(1f) — LazyColumn dentro de Column sem peso
-                // perde a virtualizacao e mede todos os itens de uma vez
-                // (jank/trava com fotos). Com peso, ocupa só o restante e rola.
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    contentPadding = PaddingValues(bottom = 96.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
+                } else {
                     itemsIndexed(itens, key = { _, it -> it.id }) { index, item ->
                         // E04 — entrada escalonada: fade 220 + slideY it/6 +
                         // scale 0.96, delay min(index*40, 400). Só 1ª composição.
