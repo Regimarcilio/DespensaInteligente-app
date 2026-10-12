@@ -11,6 +11,8 @@ work = "2.9.0"
 datastore = "1.1.1"
 junit5 = "5.10.3"
 hilt-navigation-compose = "1.2.0"
+camera = "1.4.2"
+mlkit-barcode = "17.3.0"
 
 [libraries]
 androidx-core = "androidx.core:core-ktx:1.13.1"
@@ -35,6 +37,12 @@ serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-jso
 work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 junit5-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit5" }
+camera-core = { module = "androidx.camera:camera-core", version.ref = "camera" }
+camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camera" }
+camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camera" }
+camera-view = { module = "androidx.camera:camera-view", version.ref = "camera" }
+camera-mlkit-vision = { module = "androidx.camera:camera-mlkit-vision", version.ref = "camera" }
+mlkit-barcode-scanning = { module = "com.google.mlkit:barcode-scanning", version.ref = "mlkit-barcode" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

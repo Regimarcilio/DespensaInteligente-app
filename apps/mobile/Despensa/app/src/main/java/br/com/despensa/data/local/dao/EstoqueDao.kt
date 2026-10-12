@@ -16,13 +16,27 @@ interface EstoqueDao {
     @Query("DELETE FROM estoque WHERE id = :id")
     suspend fun remover(id: String)
 
+    /**
+     * Issue #14: queries null-safe separadas. A query antiga
+     * `(:local IS NULL OR local = :local)` amarrava um param nullable ao
+     * TypeConverter nao-nulo de LocalEstoque — em alguns aparelhos o bind
+     * de null derrubava o Flow (lista congelada/vazia). Sem migracao:
+     * mesma tabela, mesma ordem; o ViewModel escolhe qual observar.
+     */
     @Query(
         "SELECT * FROM estoque " +
-            "WHERE (:local IS NULL OR local = :local) " +
+            "WHERE nome LIKE '%' || :busca || '%' " +
+            "ORDER BY CASE WHEN validade IS NULL THEN 1 ELSE 0 END, validade ASC, nome ASC"
+    )
+    fun observarTodas(busca: String): Flow<List<EstoqueEntity>>
+
+    @Query(
+        "SELECT * FROM estoque " +
+            "WHERE local = :local " +
             "AND nome LIKE '%' || :busca || '%' " +
             "ORDER BY CASE WHEN validade IS NULL THEN 1 ELSE 0 END, validade ASC, nome ASC"
     )
-    fun observar(busca: String, local: LocalEstoque?): Flow<List<EstoqueEntity>>
+    fun observarPorLocal(busca: String, local: LocalEstoque): Flow<List<EstoqueEntity>>
 
     @Query("SELECT * FROM estoque WHERE id = :id LIMIT 1")
     suspend fun buscarPorId(id: String): EstoqueEntity?
