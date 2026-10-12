@@ -260,6 +260,45 @@ fun proximoFiltroStatus(
     tocado: StatusValidade?
 ): StatusValidade? = if (atual == tocado) null else tocado
 
+/**
+ * Issue #21 (puro, testável em JVM): monta a entidade validada para o
+ * cadastro ou retorna o erro de validação. O diálogo já valida, mas o
+ * ViewModel revalida por defesa — nenhum insert inválido chega ao DAO.
+ * Nome é aparado aqui (único ponto de trim).
+ */
+fun montarItemCadastro(
+    nome: String,
+    quantidade: Double?,
+    unidade: String,
+    validade: Long?,
+    local: LocalEstoque,
+    precoRef: Double?,
+    fotoPath: String? = null
+): Result<EstoqueEntity> {
+    val erro = validarCadastro(nome, quantidade)
+    if (erro != null) return Result.failure(IllegalArgumentException(erro))
+    return Result.success(
+        EstoqueEntity(
+            nome = nome.trim(),
+            quantidade = quantidade!!,
+            unidade = unidade,
+            validade = validade,
+            local = local,
+            fotoPath = fotoPath,
+            precoRef = precoRef
+        )
+    )
+}
+
+/**
+ * Issue #21 (testável em JVM com DAO fake): persiste o item e devolve o
+ * resultado em vez de engolir a exceção. Antes, o `runCatching` só logava
+ * e o diálogo fechava como se tivesse salvo — sintoma exato da issue
+ * (tocar Salvar e nada aparecer no Estoque).
+ */
+suspend fun persistirItem(dao: EstoqueDao, item: EstoqueEntity): Result<Unit> =
+    runCatching { dao.upsert(item) }
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class EstoqueViewModel @Inject constructor(
@@ -338,7 +377,23 @@ class EstoqueViewModel @Inject constructor(
         Log.d(TAG_ESTOQUE, "filtro status alternado")
     }
 
-    fun salvar(
+    /**
+     * Issue #21: último erro de persistência fora do diálogo (remover/baixa).
+     * O diálogo de cadastro trata a falha inline (fica aberto + msg) via o
+     * Boolean de [salvar]/[salvarEdicao]; aqui só os fluxos sem diálogo usam
+     * este canal + Snackbar. Log sem PII (só o fato, nunca nomes).
+     */
+    private val _erroPersistencia = MutableStateFlow<String?>(null)
+    val erroPersistencia: StateFlow<String?> = _erroPersistencia
+
+    fun limparErroPersistencia() { _erroPersistencia.value = null }
+
+    /**
+     * Issue #21: suspenso + Boolean para o diálogo só fechar no sucesso.
+     * Revalida por defesa ([montarItemCadastro]) e persiste via
+     * [persistirItem] — falha de DAO vira `false` (nunca silêncio).
+     */
+    suspend fun salvar(
         nome: String,
         quantidade: Double,
         unidade: String,
@@ -346,32 +401,32 @@ class EstoqueViewModel @Inject constructor(
         local: LocalEstoque,
         precoRef: Double?,
         fotoPath: String? = null
-    ) = viewModelScope.launch {
-        runCatching {
-            dao.upsert(
-                EstoqueEntity(
-                    nome = nome.trim(),
-                    quantidade = quantidade,
-                    unidade = unidade,
-                    validade = validade,
-                    local = local,
-                    fotoPath = fotoPath,
-                    precoRef = precoRef
-                )
-            )
-        }.onFailure { e -> Log.e(TAG_ESTOQUE, "salvar item falhou", e) }
+    ): Boolean {
+        val item = montarItemCadastro(
+            nome, quantidade, unidade, validade, local, precoRef, fotoPath
+        ).getOrElse { e ->
+            Log.e(TAG_ESTOQUE, "salvar item bloqueado na validacao", e)
+            return false
+        }
+        return persistirItem(dao, item)
+            .onFailure { e -> Log.e(TAG_ESTOQUE, "salvar item falhou", e) }
+            .isSuccess
     }
 
     fun remover(id: String) = viewModelScope.launch {
         runCatching { dao.remover(id) }
-            .onFailure { e -> Log.e(TAG_ESTOQUE, "remover item falhou", e) }
+            .onFailure { e ->
+                Log.e(TAG_ESTOQUE, "remover item falhou", e)
+                _erroPersistencia.value = "Não foi possível remover. Tente de novo."
+            }
     }
 
     /**
      * Paridade web v2.0 (Editar Item): upsert com o MESMO id/createdAt
      * (REPLACE, sem migração). Regra de validação inalterada.
+     * Issue #21: mesmo contrato de [salvar] (suspenso + Boolean).
      */
-    fun salvarEdicao(
+    suspend fun salvarEdicao(
         original: EstoqueEntity,
         nome: String,
         quantidade: Double,
@@ -380,20 +435,17 @@ class EstoqueViewModel @Inject constructor(
         local: LocalEstoque,
         precoRef: Double?,
         fotoPath: String? = null
-    ) = viewModelScope.launch {
-        runCatching {
-            dao.upsert(
-                original.copy(
-                    nome = nome.trim(),
-                    quantidade = quantidade,
-                    unidade = unidade,
-                    validade = validade,
-                    local = local,
-                    fotoPath = fotoPath,
-                    precoRef = precoRef
-                )
-            )
-        }.onFailure { e -> Log.e(TAG_ESTOQUE, "salvar edicao falhou", e) }
+    ): Boolean {
+        val base = montarItemCadastro(
+            nome, quantidade, unidade, validade, local, precoRef, fotoPath
+        ).getOrElse { e ->
+            Log.e(TAG_ESTOQUE, "salvar edicao bloqueada na validacao", e)
+            return false
+        }
+        val item = base.copy(id = original.id, createdAt = original.createdAt)
+        return persistirItem(dao, item)
+            .onFailure { e -> Log.e(TAG_ESTOQUE, "salvar edicao falhou", e) }
+            .isSuccess
     }
 
     /**
@@ -413,7 +465,11 @@ class EstoqueViewModel @Inject constructor(
                     )
                 )
                 dao.remover(item.id)
-            }.onFailure { e -> Log.e(TAG_ESTOQUE, "dar baixa falhou", e); return@launch }
+            }.onFailure { e ->
+                Log.e(TAG_ESTOQUE, "dar baixa falhou", e)
+                _erroPersistencia.value = "Não foi possível dar baixa. Tente de novo."
+                return@launch
+            }
             aoFeito(
                 if (motivo == MotivoBaixa.CONSUMIDO) "${item.nome} consumido ✅"
                 else "${item.nome} descartado 🗑️"
@@ -536,6 +592,16 @@ fun EstoqueScreen(
     val snackbar = remember { SnackbarHostState() }
     val escopo = rememberCoroutineScope()
     val calmo = lembrarMovimentoReduzido()
+    // Issue #21: falhas fora do diálogo (remover/baixa) viram Snackbar;
+    // a falha do cadastro é tratada inline no diálogo (fica aberto + msg).
+    val erroPersistencia by vm.erroPersistencia.collectAsState()
+    LaunchedEffect(erroPersistencia, dialogoAberto) {
+        val msg = erroPersistencia
+        if (msg != null && !dialogoAberto) {
+            snackbar.showSnackbar(msg)
+            vm.limparErroPersistencia()
+        }
+    }
 
     // E08 — janela de primeira coleta (WhileSubscribed): skeleton com shimmer
     // em vez do "Estoque vazio…" enquanto o banco popula. Sem mudar fluxos:
@@ -572,22 +638,24 @@ fun EstoqueScreen(
     if (deveMostrarDialogoCadastro(dialogoAberto, escaneando)) {
         DialogoCadastro(
             onFechar = { dialogoAberto = false; editando = null; codigoScan = null },
-            onSalvar = { nome, qtd, un, val_, local, preco, foto ->
+            // Issue #21: suspenso + Boolean — o diálogo só fecha (via
+            // onFechar do sucesso) quando o Room confirma; `false` mantém
+            // o diálogo aberto com a msg inline, sem perder o digitado.
+            onSalvar = suspender@{ nome, qtd, un, val_, local, preco, foto ->
                 val alvo = editando
-                if (alvo != null) {
+                val ok = if (alvo != null) {
                     vm.salvarEdicao(alvo, nome, qtd, un, val_, local, preco, foto)
                 } else {
                     vm.salvar(nome, qtd, un, val_, local, preco, foto)
                 }
+                if (!ok) return@suspender false
                 // Issue #9c: EAN escaneado + nome confirmado = aprendizado local
                 // (lembrado na próxima leitura, sem migration, sem rede).
                 val eanLido = codigoScan
                 if (eanLido != null) {
                     vm.lembrarEan(eanLido, nome)
                 }
-                editando = null
-                dialogoAberto = false
-                codigoScan = null
+                true
             },
             editando = editando,
             calmo = calmo,
@@ -1687,7 +1755,9 @@ private fun formatarQtd(qtd: Double): String =
 @Composable
 private fun DialogoCadastro(
     onFechar: () -> Unit,
-    onSalvar: (nome: String, qtd: Double, unidade: String, validade: Long?, local: LocalEstoque, precoRef: Double?, fotoPath: String?) -> Unit,
+    // Issue #21: suspenso + Boolean — `true` = persistido (fecha);
+    // `false` = falhou (fica aberto + msg inline, sem perder o digitado).
+    onSalvar: suspend (nome: String, qtd: Double, unidade: String, validade: Long?, local: LocalEstoque, precoRef: Double?, fotoPath: String?) -> Boolean,
     editando: EstoqueEntity? = null,
     calmo: Boolean = false,
     escuro: Boolean = false,
@@ -1711,6 +1781,8 @@ private fun DialogoCadastro(
     var fotoPath by remember(editId) { mutableStateOf(editando?.fotoPath) }
     var tirandoFoto by remember { mutableStateOf(false) }
     var erro by remember { mutableStateOf<String?>(null) }
+    // Issue #21: trava o duplo-toque e mostra "Salvando…" até o Room responder.
+    var salvando by remember { mutableStateOf(false) }
     var expandUn by remember { mutableStateOf(false) }
     val contexto = LocalContext.current
     val escopo = rememberCoroutineScope()
@@ -1862,8 +1934,23 @@ private fun DialogoCadastro(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                 )
                 Spacer(Modifier.height(8.dp))
-                // Paridade web v2.0 (Data de Validade + "Sem validade" + atalhos
-                // Hoje/+3/+7/+1 mês/Sem prazo). Só UI: preenche o mesmo campo.
+                // Issue #20: validade SOMENTE via botão DATA (date picker
+                // nativo). Campo read-only (sem digitar), sem atalhos
+                // Hoje/+3/+7/+1 mês. "Sem validade" limpa (manter vazio é
+                // válido — RN-002). Alinhamento/forma intactos (campo16).
+                // dataDaqui/mascaraData seguem como helpers (cobertos por teste).
+                fun abrirPickerValidade() {
+                    val cal = Calendar.getInstance()
+                    DatePickerDialog(
+                        contexto,
+                        { _, ano, mes, dia ->
+                            validadeTxt = "%02d/%02d/%04d".format(dia, mes + 1, ano)
+                        },
+                        cal.get(Calendar.YEAR),
+                        cal.get(Calendar.MONTH),
+                        cal.get(Calendar.DAY_OF_MONTH)
+                    ).show()
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
@@ -1880,43 +1967,29 @@ private fun DialogoCadastro(
                 Spacer(Modifier.height(4.dp))
                 OutlinedTextField(
                     value = validadeTxt,
-                    onValueChange = { validadeTxt = mascaraData(it) },
-                    label = { Text("Validade (dd/MM/yyyy, opcional)") },
-                    modifier = Modifier.fillMaxWidth(),
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = true,
+                    label = { Text("Validade (opcional)") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            contentDescription =
+                                if (validadeTxt.isBlank()) "Validade não definida. Toque em DATA para escolher"
+                                else "Validade $validadeTxt. Toque em DATA para alterar"
+                        },
                     singleLine = true,
                     shape = campo16,
-                    placeholder = { Text("ex 25/12/2026") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    placeholder = { Text("Toque em DATA") },
                     trailingIcon = {
-                        TextButton(onClick = {
-                            val cal = Calendar.getInstance()
-                            DatePickerDialog(
-                                contexto,
-                                { _, ano, mes, dia ->
-                                    validadeTxt = "%02d/%02d/%04d".format(dia, mes + 1, ano)
-                                },
-                                cal.get(Calendar.YEAR),
-                                cal.get(Calendar.MONTH),
-                                cal.get(Calendar.DAY_OF_MONTH)
-                            ).show()
-                        }) { Text("DATA") }
+                        TextButton(
+                            onClick = ::abrirPickerValidade,
+                            modifier = Modifier.semantics {
+                                onClick(label = "Escolher data de validade", action = null)
+                            }
+                        ) { Text("DATA") }
                     }
                 )
-                // Atalhos rápidos (port web aplicarAtalhoValidade): Hoje, +3 e
-                // +7 dias, +1 mês (30d) e Sem prazo (limpa).
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    listOf("Hoje" to 0, "+3 dias" to 3, "+7 dias" to 7, "+1 mês" to 30).forEach { (rotulo, dias) ->
-                        TextButton(onClick = { validadeTxt = dataDaqui(dias) }) {
-                            Text(rotulo, style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                    TextButton(onClick = { validadeTxt = "" }) {
-                        Text("Sem prazo", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
                 Spacer(Modifier.height(8.dp))
                 // Paridade web v2.0 (segmentado "Onde vai guardar?" com emoji,
                 // sem dropdown).
@@ -2019,6 +2092,7 @@ private fun DialogoCadastro(
         confirmButton = {
             Button(
                 onClick = {
+                    if (salvando) return@Button
                     val qtd = qtdTxt.replace(",", ".").toDoubleOrNull()
                     val erroBase = validarCadastro(nome, qtd)
                     if (erroBase != null) {
@@ -2037,15 +2111,30 @@ private fun DialogoCadastro(
                         erro = "Preço inválido (ex 4,99)"
                         return@Button
                     }
-                    onSalvar(nome, qtd!!, unidade, validade, local, preco, fotoPath)
+                    // Issue #21: aguarda o Room; sucesso fecha (onFechar do
+                    // chamador), falha mostra msg e MANTÉM o digitado.
+                    salvando = true
+                    erro = null
+                    escopo.launch {
+                        val ok = runCatching {
+                            onSalvar(nome, qtd!!, unidade, validade, local, preco, fotoPath)
+                        }.getOrDefault(false)
+                        salvando = false
+                        if (ok) {
+                            onFechar()
+                        } else {
+                            erro = "Não foi possível salvar. Tente de novo."
+                        }
+                    }
                 },
+                enabled = !salvando,
                 interactionSource = interSalvar,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = LaranjaEcom,
                     contentColor = MaterialTheme.colorScheme.onSecondary
                 ),
                 modifier = Modifier.escalaPress(interSalvar, calmo)
-            ) { Text("Salvar Item", fontWeight = FontWeight.Bold) }
+            ) { Text(if (salvando) "Salvando…" else "Salvar Item", fontWeight = FontWeight.Bold) }
         },
         dismissButton = { TextButton(onClick = onFechar) { Text("Cancelar") } }
     )
