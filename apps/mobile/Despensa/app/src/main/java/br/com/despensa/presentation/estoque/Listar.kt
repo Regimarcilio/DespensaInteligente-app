@@ -1,5 +1,6 @@
 package br.com.despensa.presentation.estoque
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,9 +24,12 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
@@ -35,7 +39,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -43,6 +52,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,7 +66,11 @@ import br.com.despensa.domain.statusValidade
 import br.com.despensa.presentation.theme.AmbarEcom
 import br.com.despensa.presentation.theme.LaranjaQueimada
 import br.com.despensa.presentation.theme.MentaEcom
+import br.com.despensa.presentation.theme.NevoaTurquesa
+import br.com.despensa.presentation.theme.RosaQueimadoFundo
 import br.com.despensa.presentation.theme.TurquesaProfunda
+import br.com.despensa.presentation.theme.VermelhoNoite
+import br.com.despensa.presentation.theme.VermelhoQueimado
 import br.com.despensa.presentation.theme.corFundoSelo
 import br.com.despensa.presentation.theme.corTextoSelo
 import br.com.despensa.presentation.theme.sombraFeira
@@ -161,6 +175,13 @@ fun CardListar(
 }
 
 /**
+ * Issue #18 (puro, testável em JVM): texto de confirmação da remoção no
+ * Listar — sai do Estoque e da tela Listar (AC com confirmação).
+ */
+fun mensagemRemocaoListar(nome: String): String =
+    "\"${nome.trim()}\" sai do Estoque e da tela Listar. Continuar?"
+
+/**
  * Nova tela dedicada (não diálogo, não overlay): itens do Estoque em blocos
  * com dados expostos (nome, qtd, local • preço, pílula de validade + data).
  * Cada bloco tem "Adicionar" → entra na Lista de Compras (via MANUAL).
@@ -171,8 +192,19 @@ fun ListarScreen(
     nomesNaLista: Set<String>,
     escuro: Boolean = false,
     onAdicionar: (EstoqueEntity) -> Unit,
-    onVoltar: () -> Unit
+    onVoltar: () -> Unit,
+    // Issue #18: CRUD completo reaproveitando os fluxos do Estoque
+    // (criar/editar via DialogoCadastro, baixa via darBaixa, remover no DAO).
+    // Sem regra nova; destino segue sendo a Lista de Compras.
+    onCriar: () -> Unit = {},
+    onEditar: (EstoqueEntity) -> Unit = {},
+    onConsumir: (EstoqueEntity) -> Unit = {},
+    onDescartar: (EstoqueEntity) -> Unit = {},
+    onRemover: (EstoqueEntity) -> Unit = {}
 ) {
+    // Issue #18: voltar físico/gesto volta ao Estoque sem perder estado
+    // (mesmos ViewModels; só fecha a tela Listar).
+    BackHandler(onBack = onVoltar)
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -198,6 +230,16 @@ fun ListarScreen(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+            // Issue #18: criar reaproveita o DialogoCadastro do Estoque.
+            IconButton(
+                onClick = onCriar,
+                modifier = Modifier.semantics {
+                    contentDescription = "Criar item no estoque"
+                    stateDescription = "Abre o cadastro do Estoque"
+                }
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = "Criar item no estoque")
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -225,7 +267,11 @@ fun ListarScreen(
                         item = item,
                         jaNaLista = nomesNaLista.contains(chaveLista(item.nome)),
                         escuro = escuro,
-                        onAdicionar = { onAdicionar(item) }
+                        onAdicionar = { onAdicionar(item) },
+                        onEditar = onEditar,
+                        onConsumir = onConsumir,
+                        onDescartar = onDescartar,
+                        onRemover = onRemover
                     )
                 }
             }
@@ -238,8 +284,13 @@ private fun BlocoListar(
     item: EstoqueEntity,
     jaNaLista: Boolean,
     escuro: Boolean,
-    onAdicionar: () -> Unit
+    onAdicionar: () -> Unit,
+    onEditar: (EstoqueEntity) -> Unit = {},
+    onConsumir: (EstoqueEntity) -> Unit = {},
+    onDescartar: (EstoqueEntity) -> Unit = {},
+    onRemover: (EstoqueEntity) -> Unit = {}
 ) {
+    var confirmarRemover by remember { mutableStateOf(false) }
     val agora = System.currentTimeMillis()
     val status = statusValidade(item.validade, agora)
     val dias = diasParaVencer(item.validade, agora)
@@ -344,6 +395,99 @@ private fun BlocoListar(
                     )
                 }
             }
+            // Issue #18: ações do bloco no mesmo padrão do EstoqueCard
+            // (Consumir/Descartar + Editar + Remover com confirmação).
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                val alturaAcao = Modifier.height(36.dp)
+                Button(
+                    onClick = { onConsumir(item) },
+                    modifier = alturaAcao
+                        .weight(1f)
+                        .semantics {
+                            onClick(label = "Consumir ${item.nome}", action = null)
+                        },
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (escuro) MentaEcom.copy(alpha = 0.15f)
+                        else NevoaTurquesa,
+                        contentColor = if (escuro) MentaEcom else TurquesaProfunda
+                    )
+                ) {
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "Consumir",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+                Button(
+                    onClick = { onDescartar(item) },
+                    modifier = alturaAcao
+                        .weight(1f)
+                        .semantics {
+                            onClick(label = "Descartar ${item.nome}", action = null)
+                        },
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (escuro) VermelhoNoite.copy(alpha = 0.20f)
+                        else RosaQueimadoFundo,
+                        contentColor = if (escuro) VermelhoNoite else VermelhoQueimado
+                    )
+                ) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "Descartar",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+                IconButton(
+                    onClick = { onEditar(item) },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .semantics {
+                            onClick(label = "Editar ${item.nome}", action = null)
+                        }
+                ) {
+                    Icon(
+                        Icons.Filled.Edit,
+                        contentDescription = "Editar ${item.nome}",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(
+                    onClick = { confirmarRemover = true },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .semantics {
+                            onClick(label = "Remover ${item.nome} do estoque", action = null)
+                        }
+                ) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = "Remover ${item.nome} do estoque",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             Button(
                 onClick = onAdicionar,
                 enabled = !jaNaLista,
@@ -372,6 +516,27 @@ private fun BlocoListar(
                 }
             }
         }
+    }
+
+    // Issue #18 (AC): remover com confirmação — sai do Estoque e do Listar
+    // (a lista observa os brutos do DAO; sem regra nova).
+    if (confirmarRemover) {
+        AlertDialog(
+            onDismissRequest = { confirmarRemover = false },
+            title = { Text("Remover \"${item.nome}\"?") },
+            text = { Text(mensagemRemocaoListar(item.nome)) },
+            confirmButton = {
+                TextButton(
+                    onClick = { confirmarRemover = false; onRemover(item) },
+                    modifier = Modifier.semantics {
+                        onClick(label = "Confirmar remoção de ${item.nome}", action = null)
+                    }
+                ) { Text("Remover") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmarRemover = false }) { Text("Cancelar") }
+            }
+        )
     }
 }
 

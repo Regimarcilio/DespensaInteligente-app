@@ -3,6 +3,7 @@ package br.com.despensa
 import br.com.despensa.domain.podeAdicionarNaLista
 import br.com.despensa.presentation.estoque.SUBTITULO_LISTAR
 import br.com.despensa.presentation.estoque.descricaoCardListar
+import br.com.despensa.presentation.estoque.mensagemRemocaoListar
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -40,6 +41,19 @@ class ListarSelecaoTest {
         val d = descricaoCardListar(1)
         assertTrue(d.contains(SUBTITULO_LISTAR))
         assertTrue(d.contains("1 item no estoque"))
+    }
+
+    // Issue #18 (JVM): remover com confirmação sai do Estoque e do Listar.
+    @Test fun `mensagem de remocao cita estoque e listar`() {
+        val m = mensagemRemocaoListar("Arroz")
+        assertTrue(m.contains("Estoque"))
+        assertTrue(m.contains("Listar"))
+        assertTrue(m.contains("Arroz"))
+    }
+
+    @Test fun `mensagem de remocao apara espacos`() {
+        val m = mensagemRemocaoListar("  Leite  ")
+        assertTrue(m.contains("\"Leite\""))
     }
 
     @Test fun `descricao do card plural cita utilidade e total`() {

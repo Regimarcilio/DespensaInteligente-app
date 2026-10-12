@@ -564,6 +564,49 @@ fun EstoqueScreen(
         escopo.launch { snackbar.showSnackbar(msg) }
     }
 
+    // Issue #18: cadastro + scanner ANTES do Listar — o CRUD da tela
+    // Listar usa o mesmo DialogoCadastro/fluxo de scan sem perder o Estoque.
+    // Issue #8: diálogo oculto com o scanner aberto (AlertDialog cobre o
+    // preview — z-order de janela própria). Preview fica em tela cheia com a
+    // mira; ao voltar (onCodigoLido/onFechar) o diálogo reaparece limpo.
+    if (deveMostrarDialogoCadastro(dialogoAberto, escaneando)) {
+        DialogoCadastro(
+            onFechar = { dialogoAberto = false; editando = null; codigoScan = null },
+            onSalvar = { nome, qtd, un, val_, local, preco, foto ->
+                val alvo = editando
+                if (alvo != null) {
+                    vm.salvarEdicao(alvo, nome, qtd, un, val_, local, preco, foto)
+                } else {
+                    vm.salvar(nome, qtd, un, val_, local, preco, foto)
+                }
+                // Issue #9c: EAN escaneado + nome confirmado = aprendizado local
+                // (lembrado na próxima leitura, sem migration, sem rede).
+                val eanLido = codigoScan
+                if (eanLido != null) {
+                    vm.lembrarEan(eanLido, nome)
+                }
+                editando = null
+                dialogoAberto = false
+                codigoScan = null
+            },
+            editando = editando,
+            calmo = calmo,
+            escuro = escuro,
+            codigoEscaneado = codigoScan,
+            nomesExistentes = brutos.map { it.nome },
+            catalogoAprendido = aprendidos,
+            onPedirScan = { escaneando = true }
+        )
+    }
+
+    // Issue #3: overlay do scanner (rationale CAMERA + preview ML Kit). Volta
+    // sem código (negou/sem câmera) = cai no manual, sem crash (AC2).
+    if (escaneando) {
+        FluxoScanCodigo(
+            onCodigoLido = { codigoScan = it; escaneando = false },
+            onFechar = { escaneando = false }
+        )
+    }
     // Issue #10: tela dedicada (nao dialogo, nao overlay) — substitui o
     // conteudo, sem empilhar telas. Voltar fecha sem perder o Estoque.
     if (listarAberto) {
@@ -582,7 +625,13 @@ fun EstoqueScreen(
                     avisar("\"${item.nome}\" já está na lista")
                 }
             },
-            onVoltar = { listarAberto = false }
+            onVoltar = { listarAberto = false },
+            // Issue #18: CRUD reaproveita cadastro/baixa/DAO do Estoque.
+            onCriar = { editando = null; dialogoAberto = true },
+            onEditar = { editando = it; dialogoAberto = true },
+            onConsumir = { vm.darBaixa(it, MotivoBaixa.CONSUMIDO, ::avisar) },
+            onDescartar = { vm.darBaixa(it, MotivoBaixa.DESCARTADO, ::avisar) },
+            onRemover = { vm.remover(it.id) }
         )
         return
     }
@@ -923,47 +972,7 @@ fun EstoqueScreen(
         }
     }
 
-    // Issue #8: diálogo oculto com o scanner aberto (AlertDialog cobre o
-    // preview — z-order de janela própria). Preview fica em tela cheia com a
-    // mira; ao voltar (onCodigoLido/onFechar) o diálogo reaparece limpo.
-    if (deveMostrarDialogoCadastro(dialogoAberto, escaneando)) {
-        DialogoCadastro(
-            onFechar = { dialogoAberto = false; editando = null; codigoScan = null },
-            onSalvar = { nome, qtd, un, val_, local, preco, foto ->
-                val alvo = editando
-                if (alvo != null) {
-                    vm.salvarEdicao(alvo, nome, qtd, un, val_, local, preco, foto)
-                } else {
-                    vm.salvar(nome, qtd, un, val_, local, preco, foto)
-                }
-                // Issue #9c: EAN escaneado + nome confirmado = aprendizado local
-                // (lembrado na próxima leitura, sem migration, sem rede).
-                val eanLido = codigoScan
-                if (eanLido != null) {
-                    vm.lembrarEan(eanLido, nome)
-                }
-                editando = null
-                dialogoAberto = false
-                codigoScan = null
-            },
-            editando = editando,
-            calmo = calmo,
-            escuro = escuro,
-            codigoEscaneado = codigoScan,
-            nomesExistentes = brutos.map { it.nome },
-            catalogoAprendido = aprendidos,
-            onPedirScan = { escaneando = true }
-        )
-    }
 
-    // Issue #3: overlay do scanner (rationale CAMERA + preview ML Kit). Volta
-    // sem código (negou/sem câmera) = cai no manual, sem crash (AC2).
-    if (escaneando) {
-        FluxoScanCodigo(
-            onCodigoLido = { codigoScan = it; escaneando = false },
-            onFechar = { escaneando = false }
-        )
-    }
 }
 
 /**
