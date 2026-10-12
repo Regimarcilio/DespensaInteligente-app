@@ -12,9 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,7 +22,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -68,7 +65,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import br.com.despensa.data.local.prefs.ModoTema
+import br.com.despensa.data.local.prefs.MODOS_TEMA_VISIVEIS
 import br.com.despensa.data.local.prefs.TemaPrefs
+import br.com.despensa.data.local.prefs.migrarModoTema
 import br.com.despensa.domain.formatarReais
 import br.com.despensa.presentation.economia.EconomiaScreen
 import br.com.despensa.presentation.economia.EconomiaViewModel
@@ -109,16 +108,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            // Paleta v4 §b: modo de tema como OPÇÃO (DataStore "modo_tema",
-            // default SISTEMA = comportamento pré-v4). Único isSystemInDarkTheme()
-            // do app — telas recebem `escuro` por parâmetro.
-            val modo by temaPrefs.modoTema.collectAsState(initial = ModoTema.SISTEMA)
-            val doSistema = isSystemInDarkTheme()
-            val escuro = when (modo) {
-                ModoTema.SISTEMA -> doSistema
-                ModoTema.CLARO -> false
-                ModoTema.ESCURO -> true
-            }
+            // Paleta v4 §b: modo de tema como OPÇÃO (DataStore "modo_tema").
+            // Issue #22: SOMENTE Claro/Noturno; o prefs já migra o legado
+            // SISTEMA → ESCURO, e aqui normaliza por defesa (cintura dupla).
+            // Telas recebem `escuro` por parâmetro.
+            val modoBruto by temaPrefs.modoTema.collectAsState(initial = ModoTema.ESCURO)
+            val modo = migrarModoTema(modoBruto)
+            val escuro = modo == ModoTema.ESCURO
             DespensaTheme(escuro = escuro) {
                 // Sprint 2 (RF-002): rationale próprio + pedido do sistema na 1ª abertura.
                 PedidoPermissaoNotificacao()
@@ -145,11 +141,9 @@ class MainActivity : ComponentActivity() {
                 // compacto + pílula têm bounds fixos, sem AnimatedContent aqui.
                 // UM título por tela: marca no header, contagem no corpo.
                 val verdeNav = if (escuro) MentaEcom else TurquesaProfunda
-                val rotuloTema = when (modo) {
-                    ModoTema.SISTEMA -> "Sistema"
-                    ModoTema.CLARO -> "Claro"
-                    ModoTema.ESCURO -> "Escuro"
-                }
+                // Issue #22: rótulo curto do modo atual (só Claro/Escuro).
+                val rotuloTema = if (modo == ModoTema.ESCURO) "Escuro" else "Claro"
+
 
                 Scaffold(
                     topBar = {
@@ -206,16 +200,6 @@ class MainActivity : ComponentActivity() {
                                                 Icons.Filled.Contrast,
                                                 contentDescription = null,
                                                 tint = MaterialTheme.colorScheme.onBackground
-                                            )
-                                        }
-                                        // Dot indica override ativo (modo ≠ Sistema).
-                                        if (modo != ModoTema.SISTEMA) {
-                                            Box(
-                                                Modifier
-                                                    .align(Alignment.TopEnd)
-                                                    .padding(top = 10.dp, end = 10.dp)
-                                                    .size(8.dp)
-                                                    .background(LaranjaEcom, CircleShape)
                                             )
                                         }
                                         }
@@ -349,8 +333,9 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * Seletor de tema (§07-paleta-v4 b.2): AlertDialog 28dp, 3 linhas RadioButton +
- * texto. Toque seleciona e fecha (sem OK); "Cancelar" ghost fecha sem mudar.
+ * Seletor de tema (§07-paleta-v4 b.2, issue #22): AlertDialog 28dp, 2 linhas
+ * RadioButton (Modo Claro + Modo Noturno, nomes mantidos) + texto. Toque
+ * seleciona e fecha (sem OK); "Cancelar" ghost fecha sem mudar.
  * Título segue titleMedium Inter Bold da forma atual (forma congelada).
  */
 @Composable
@@ -379,7 +364,8 @@ private fun DialogoTema(
         },
         text = {
             Column {
-                ModoTema.values().forEach { opcao ->
+                // Issue #22: só as 2 opções atuais (SISTEMA fora da UI).
+                MODOS_TEMA_VISIVEIS.forEach { opcao ->
                     val selecionado = opcao == modoAtual
                     // Seleção com animateColorAsState 250ms (forma congelada).
                     val corTexto by animateColorAsState(
