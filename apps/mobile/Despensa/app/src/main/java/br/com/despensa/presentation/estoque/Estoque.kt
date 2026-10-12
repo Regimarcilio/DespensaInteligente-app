@@ -77,7 +77,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -705,12 +704,12 @@ fun EstoqueScreen(
             // contagem, sem busca/chips (vivem na Listar) e sem lista de itens.
             // Issue #17: topo com menos espaço morto (12→8dp); respiro mantido.
             Spacer(Modifier.height(8.dp))
-            // Issue #16 (reabertura 12/10, image/6.jpg): hero + card Listar
-            // vivem DENTRO do LazyColumn como header. Na Column fixa, telas
-            // curtas mediam o card com maxHeight minúsculo — texto cortado,
-            // "+" transbordando sobre o hero, card espremido contra a nav.
-            // Como item, medem com altura livre (nunca espremem) e rolam junto
-            // se precisar. Respiro hero→card 10dp; bottom 96dp acima da nav.
+            // Issue #16 (reaberta, T1 definitivo): hero + cards vivem DENTRO
+            // do LazyColumn como header (medem com altura livre — nunca
+            // espremem, texto nunca corta — image/6.jpg). Mesma gramática
+            // ([FaixaEstoque]/hero): raio 28dp, faixa teal, "+" 56dp sobre a
+            // borda inferior com 28dp de saída tocável + 16dp de respiro
+            // (o "+" nunca invade o seguinte). Bottom 96dp acima da nav.
             // Destino/fluxo Listar (#10/#18) intactos.
             // Issue #25: só hero + card — itens vivem na Listar.
             // FIX FAB: 96dp p/ nunca cobrir o 3º contador/cards.
@@ -720,7 +719,7 @@ fun EstoqueScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = PaddingValues(top = 2.dp, bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 item(key = "hero") {
                     HeroFrescor(
@@ -737,7 +736,10 @@ fun EstoqueScreen(
                         onFiltrarStatus = { st ->
                             vm.alternarFiltroStatus(st)
                             listarAberto = true
-                        }
+                        },
+                        // Issue #16 (T1): "+" do hero abre o cadastro —
+                        // mesmo destino do FAB, sem mudar fluxos.
+                        onAdicionar = { editando = null; dialogoAberto = true }
                     )
                 }
                 // Issue #10 (spec 11/10): card verde "Listar" + "+" → tela dedicada.
@@ -762,6 +764,13 @@ fun EstoqueScreen(
  * Hero de frescor (§4.2, único componente novo): gradiente teal 28dp com
  * eyebrow, título serifado, valor em estoque e 3 contadores que filtram
  * (reaproveitam `filtrarStatus`, sem regra nova). Teal idêntico nos 2 modos.
+ *
+ * Issue #16 (reaberta, T1 `docs/prototipos/inventario-26/T1-estoque.png`):
+ * mesma gramática das faixas ([FundoFaixaEstoque]/[RaioFaixaEstoque]) +
+ * [BotaoMaisSobreposto] na borda inferior (abre o cadastro — mesmo destino
+ * do FAB, sem mudar fluxos). Título/contagem, slogan e EM ESTOQUE+valor em
+ * áreas próprias (sem colisão); respiro inferior 40dp para o "+" nunca
+ * cobrir os contadores nem invadir o card seguinte (image/6.jpg).
  */
 @Composable
 private fun HeroFrescor(
@@ -773,25 +782,28 @@ private fun HeroFrescor(
     escuro: Boolean,
     calmo: Boolean,
     filtroStatus: StatusValidade?,
-    onFiltrarStatus: (StatusValidade?) -> Unit
+    onFiltrarStatus: (StatusValidade?) -> Unit,
+    onAdicionar: () -> Unit
 ) {
+    // Issue #16 (T1): o Box reserva 28dp abaixo do hero — a metade de
+    // fora do "+" segue tocável e vira respiro até o card seguinte.
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 28.dp)
+    ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(TurquesaProfunda, Color(0xFF0E7C6B))
-                ),
-                RoundedCornerShape(28.dp)
-            )
+            .background(FundoFaixaEstoque, RaioFaixaEstoque)
             .then(
                 if (escuro) Modifier.border(
                     1.dp,
                     MentaEcom.copy(alpha = 0.25f),
-                    RoundedCornerShape(28.dp)
+                    RaioFaixaEstoque
                 ) else Modifier
             )
-            .padding(16.dp)
+            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 40.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -916,6 +928,16 @@ private fun HeroFrescor(
                 onClick = { onFiltrarStatus(StatusValidade.VENCIDO) }
             )
         }
+    }
+    BotaoMaisSobreposto(
+        descricao = "Adicionar item ao estoque",
+        rotuloClique = "Adicionar item ao estoque",
+        onClick = onAdicionar,
+        escuro = escuro,
+        modifier = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(end = 16.dp)
+    )
     }
 }
 

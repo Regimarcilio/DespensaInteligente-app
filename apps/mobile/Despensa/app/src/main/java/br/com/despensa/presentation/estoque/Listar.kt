@@ -1,9 +1,6 @@
 package br.com.despensa.presentation.estoque
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,7 +10,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -56,7 +52,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
@@ -106,21 +101,16 @@ fun descricaoCardListar(totalItens: Int): String =
         "Toque no mais para montar a Lista de Compras."
 
 /**
- * Issue #16 (spec visual oficial 11/10, `image/5.png`): fundo do bloco "+"
- * da faixa Listar. Tom teal escuro para o "+" branco contrastar sobre o
- * gradiente do card — mesma dimensão do FAB/hero (56dp) e mesmos cantos
- * (16dp). Só UI, sem regra nova.
- */
-private val VerdeBlocoMais = Color(0xFF08493F)
-
-/**
- * Issue #10 (spec aceita 11/10) + Issue #16 (spec visual oficial 11/10,
- * `image/5.png` — PREVALECE): faixa verde "Listar" abaixo do Controle de
- * Frescor, no mesmo padrão do hero (gradiente + 28dp). À esquerda, ícone de
- * lista (☰) + "Listar" em linha única; à direita, bloco "+" verde-escuro de
- * 56dp/cantos 16dp idêntico ao "+" do hero (padrão do FAB). Tocar no card ou
- * no "+" abre a tela Listar (fluxo #10/#18) — destino/comportamento intactos.
- * Utilidade + contagem vivem no TalkBack via [descricaoCardListar].
+ * Issue #10 (spec aceita 11/10) + Issue #16 (reaberta, spec visual final
+ * `docs/prototipos/inventario-26/T1-estoque.png` — PREVALECE): faixa verde
+ * "Listar" abaixo do Controle de Frescor, na MESMA gramática do hero
+ * ([FaixaEstoque]: gradiente teal + raio 28dp + bloco "+" 56dp/cantos 16dp
+ * sobrepondo a borda inferior, sem invadir o card seguinte). À esquerda,
+ * ícone de lista + "Listar" em linha única; utilidade + contagem vivem no
+ * TalkBack via [descricaoCardListar]. Tocar no card ou no "+" abre a tela
+ * Listar (fluxo #10/#18) — destino/comportamento intactos.
+ *
+ * A cor do bloco "+" vive em [VerdeBlocoMais] (FaixaCard.kt, mesma gramática).
  */
 @Composable
 fun CardListar(
@@ -128,74 +118,15 @@ fun CardListar(
     escuro: Boolean,
     onAbrir: () -> Unit
 ) {
-    // Issue #16 (reabertura 12/10, image/6.jpg): altura mínima real 72dp
-    // (56dp do "+" + 16dp de padding vertical) + padding vertical folgado —
-    // mesmo sob medida apertada o texto nunca corta e o "+" nunca transborda.
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 72.dp)
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(TurquesaProfunda, Color(0xFF0E7C6B))
-                ),
-                RoundedCornerShape(28.dp)
-            )
-            .then(
-                if (escuro) Modifier.border(
-                    1.dp,
-                    MentaEcom.copy(alpha = 0.25f),
-                    RoundedCornerShape(28.dp)
-                ) else Modifier
-            )
-            .clickable(onClickLabel = "Abrir tela Listar com itens em blocos") { onAbrir() }
-            .padding(start = 20.dp, top = 12.dp, bottom = 12.dp, end = 8.dp)
-            .semantics(mergeDescendants = true) {
-                contentDescription = descricaoCardListar(totalItens)
-            },
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Issue #16 (5.png): ícone de lista ☰ branco à esquerda do rótulo
-        // (nulo p/ TalkBack — o card já anuncia "Listar ..." via merge).
-        Icon(
-            Icons.Filled.FormatListBulleted,
-            contentDescription = null,
-            tint = Color.White,
-            modifier = Modifier.size(24.dp)
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            "Listar",
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 20.sp,
-            color = Color.White,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
-        Spacer(Modifier.width(12.dp))
-        // "+" no padrão do hero/FAB (56dp, cantos 16dp, sombra): bloco
-        // verde-escuro com "+" branco, visível e tocável em light + dark.
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = VerdeBlocoMais,
-            contentColor = Color.White,
-            modifier = Modifier
-                .size(56.dp)
-                .sombraFeira(escuro, RoundedCornerShape(16.dp))
-                .semantics {
-                    onClick(label = "Abrir Listar", action = null)
-                }
-                .clickable(onClickLabel = "Abrir Listar") { onAbrir() }
-        ) {
-            Icon(
-                Icons.Filled.Add,
-                contentDescription = "Abrir Listar",
-                tint = Color.White,
-                modifier = Modifier.padding(14.dp)
-            )
-        }
-    }
+    FaixaEstoque(
+        icone = Icons.Filled.FormatListBulleted,
+        rotulo = "Listar",
+        escuro = escuro,
+        descricaoAcessivel = descricaoCardListar(totalItens),
+        descricaoMais = "Abrir Listar",
+        rotuloAbrir = "Abrir tela Listar com itens em blocos",
+        onAbrir = onAbrir
+    )
 }
 
 /**
