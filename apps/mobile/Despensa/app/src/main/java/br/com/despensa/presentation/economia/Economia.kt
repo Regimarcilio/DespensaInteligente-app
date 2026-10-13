@@ -62,8 +62,6 @@ import androidx.lifecycle.viewModelScope
 import br.com.despensa.data.local.dao.BaixaDao
 import br.com.despensa.data.local.dao.EstoqueDao
 import br.com.despensa.data.local.entity.BaixaEntity
-import br.com.despensa.data.local.entity.EstoqueEntity
-import br.com.despensa.data.local.entity.LocalEstoque
 import br.com.despensa.data.local.entity.MotivoBaixa
 import br.com.despensa.domain.formatarReais
 import br.com.despensa.domain.inicioDoMes
@@ -163,28 +161,6 @@ class EconomiaViewModel @Inject constructor(
         return res
     }
 
-    /**
-     * Paridade web v2.0 ("Restaurar exemplos", storage/db.ts): reinsere os
-     * 6 itens + 3 baixas de exemplo com validades relativas a HOJE (upsert por
-     * id seed-w*, idempotente). Só INSERTs — sem migração, sem mudar regras.
-     */
-    suspend fun restaurarExemplos() {
-        val dia = 24L * 60 * 60 * 1000
-        val agora = System.currentTimeMillis()
-        listOf(
-            EstoqueEntity("seed-w1", "Leite Integral 1L", 2.0, "cx", agora + 2 * dia, LocalEstoque.GELADEIRA, null, 4.89, agora - 3 * dia),
-            EstoqueEntity("seed-w2", "Iogurte Natural", 3.0, "pote", agora - 1 * dia, LocalEstoque.GELADEIRA, null, 3.5, agora - 10 * dia),
-            EstoqueEntity("seed-w3", "Filé de Frango 1kg", 2.0, "pct", agora + 60 * dia, LocalEstoque.FREEZER, null, 19.9, agora - 5 * dia),
-            EstoqueEntity("seed-w4", "Arroz Branco 5kg", 1.0, "pct", agora + 180 * dia, LocalEstoque.DESPENSA, null, 28.5, agora - 12 * dia),
-            EstoqueEntity("seed-w5", "Tomate Italiano", 6.0, "un", agora + 1 * dia, LocalEstoque.GELADEIRA, null, 1.2, agora - 4 * dia),
-            EstoqueEntity("seed-w6", "Azeite Extra Virgem 500ml", 1.0, "un", agora + 240 * dia, LocalEstoque.DESPENSA, null, 34.9, agora - 20 * dia)
-        ).forEach { estoqueDao.upsert(it) }
-        listOf(
-            BaixaEntity("seed-wb1", "Manteiga com Sal 200g", 1.0, "pote", 11.5, MotivoBaixa.CONSUMIDO, agora - 2 * dia),
-            BaixaEntity("seed-wb2", "Queijo Muçarela 300g", 1.0, "pct", 16.8, MotivoBaixa.CONSUMIDO, agora - 4 * dia),
-            BaixaEntity("seed-wb3", "Pão de Forma", 1.0, "pct", 7.9, MotivoBaixa.DESCARTADO, agora - 7 * dia)
-        ).forEach { baixaDao.registrar(it) }
-    }
 }
 
 @Composable
@@ -207,7 +183,6 @@ fun EconomiaScreen(vm: EconomiaViewModel = hiltViewModel(), escuro: Boolean = fa
     val contexto = LocalContext.current
     val escopo = rememberCoroutineScope()
     var statusBackup by remember { mutableStateOf<String?>(null) }
-    var confirmarExemplos by remember { mutableStateOf(false) }
     // Issue #27: confirmação + anti-duplo-toque + erro inline da limpeza.
     var confirmarLimpeza by remember { mutableStateOf(false) }
     var limpandoHistorico by remember { mutableStateOf(false) }
@@ -523,12 +498,6 @@ fun EconomiaScreen(vm: EconomiaViewModel = hiltViewModel(), escuro: Boolean = fa
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        // Paridade web v2.0 ("Restaurar exemplos", storage/db.ts): reinsere os
-        // dados de exemplo com confirmação. Sem GitHub-Sync (OUT da issue #1).
-        TextButton(
-            onClick = { confirmarExemplos = true },
-            modifier = Modifier.semantics { onClick(label = "Restaurar alimentos e dados de exemplo", action = null) }
-        ) { Text("Restaurar exemplos") }
         Spacer(Modifier.height(24.dp))
     }
 
@@ -579,27 +548,6 @@ fun EconomiaScreen(vm: EconomiaViewModel = hiltViewModel(), escuro: Boolean = fa
         )
     }
 
-    if (confirmarExemplos) {
-        AlertDialog(
-            onDismissRequest = { confirmarExemplos = false },
-            shape = RoundedCornerShape(28.dp),
-            containerColor = MaterialTheme.colorScheme.surface,
-            title = { Text("Restaurar exemplos") },
-            text = { Text("Deseja recarregar os alimentos e dados de exemplo?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmarExemplos = false
-                    escopo.launch(Dispatchers.IO) {
-                        vm.restaurarExemplos()
-                        withContext(Dispatchers.Main) { avisar("Dados de exemplo recarregados.") }
-                    }
-                }) { Text("Restaurar", fontWeight = FontWeight.Bold) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmarExemplos = false }) { Text("Cancelar") }
-            }
-        )
-    }
 }
 
 /**

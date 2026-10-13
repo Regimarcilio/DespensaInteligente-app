@@ -1,7 +1,6 @@
 package br.com.despensa.presentation.estoque
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,8 +32,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -70,22 +70,17 @@ import br.com.despensa.domain.formatarReais
 import br.com.despensa.domain.statusValidade
 import br.com.despensa.presentation.theme.AmbarEcom
 import br.com.despensa.presentation.theme.BordaNoiteAzul
-import br.com.despensa.presentation.theme.CartaoEcom
 import br.com.despensa.presentation.theme.LaranjaEcom
 import br.com.despensa.presentation.theme.LaranjaQueimada
 import br.com.despensa.presentation.theme.LinhaAzul
 import br.com.despensa.presentation.theme.MentaEcom
-import br.com.despensa.presentation.theme.MutedEcom
-import br.com.despensa.presentation.theme.NeveEcom
 import br.com.despensa.presentation.theme.NevoaTurquesa
-import br.com.despensa.presentation.theme.PetroleoSec
 import br.com.despensa.presentation.theme.RosaQueimadoFundo
 import br.com.despensa.presentation.theme.TurquesaProfunda
 import br.com.despensa.presentation.theme.VermelhoNoite
 import br.com.despensa.presentation.theme.VermelhoQueimado
 import br.com.despensa.presentation.theme.corFundoSelo
 import br.com.despensa.presentation.theme.corTextoSelo
-import br.com.despensa.presentation.theme.escalaPress
 import br.com.despensa.presentation.theme.sombraFeira
 
 /**
@@ -137,15 +132,26 @@ fun mensagemRemocaoListar(nome: String): String =
     "\"${nome.trim()}\" sai do Estoque e da tela Listar. Continuar?"
 
 /**
+ * Issue #32 (puro, testável em JVM): rótulo da suspensa de local a partir
+ * do filtro ativo (mesmas 4 opções dos chips — [LOCAIS_FILTRO]). Null =
+ * Todos; mesmo comportamento de filtro, só mudou o contêiner.
+ */
+fun rotuloLocalSelecionado(filtro: LocalEstoque?): String =
+    LOCAIS_FILTRO.firstOrNull { it.second == filtro }?.first ?: "Todos"
+
+
+/**
  * Nova tela dedicada (não diálogo, não overlay): itens do Estoque em blocos
  * com dados expostos (nome, qtd, local • preço, pílula de validade + data).
  * Cada bloco tem "Adicionar" → entra na Lista de Compras (via MANUAL).
  *
- * Issue #25: busca + chips de status/locais vivem AQUI (port fiel do Estoque
- * — mesmas regras, contadores e semântica; o estado segue no
- * EstoqueViewModel, só mudou de lugar). Os itens exibidos já vêm filtrados;
- * o hero do Estoque abre esta tela já filtrada (toggle #15 mantido).
+ * Issue #25: busca + locais vivem AQUI (port fiel do Estoque — mesmas
+ * regras e semântica; o estado segue no EstoqueViewModel, só mudou de
+ * lugar). Issue #33: fileira de chips de status removida (o hero do Estoque
+ * já tem essas funcionalidades); o filtro vindo do hero (#15) segue visível
+ * na linha de filtro ativo + Limpar. Os itens exibidos já vêm filtrados.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListarScreen(
     itens: List<EstoqueEntity>,
@@ -162,6 +168,9 @@ fun ListarScreen(
     onDescartar: (EstoqueEntity) -> Unit = {},
     onRemover: (EstoqueEntity) -> Unit = {},
     // Issue #25: estado de filtro (hospedado no EstoqueViewModel).
+    // Issue #33: contadores/totalBrutos/onAlternarStatus mantidos por
+    // compatibilidade (chamador Estoque.kt inalterado); a UI de chips foi
+    // removida, mas as regras de filtro seguem intactas no ViewModel.
     busca: String = "",
     filtroLocal: LocalEstoque? = null,
     filtroStatus: StatusValidade? = null,
@@ -240,101 +249,53 @@ fun ListarScreen(
             )
         )
         Spacer(Modifier.height(6.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(LOCAIS_FILTRO) { (rotulo, local) ->
-                // E06 — FilterChip pílula com press scale (interactionSource próprio).
-                val interChip = remember(rotulo) { MutableInteractionSource() }
-                val sel = filtroLocal == local
-                val chipFundo = if (escuro) CartaoEcom else NeveEcom
-                val chipBorda = if (escuro) BordaNoiteAzul else LinhaAzul
-                FilterChip(
-                    selected = sel,
-                    onClick = { onFiltrarLocal(local) },
-                    label = {
-                        Text(
-                            rotulo,
-                            maxLines = 1,
-                            color = if (sel) Color.White else if (escuro) MutedEcom else PetroleoSec
-                        )
-                    },
-                    interactionSource = interChip,
-                    modifier = Modifier
-                        .escalaPress(interChip, calmo)
-                        .semantics {
-                            contentDescription = "Filtrar local: $rotulo"
-                        },
-                    shape = CircleShape,
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = TurquesaProfunda,
-                        selectedLabelColor = Color.White,
-                        containerColor = chipFundo
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        enabled = true,
-                        selected = sel,
-                        borderColor = chipBorda,
-                        selectedBorderColor = TurquesaProfunda,
-                        disabledBorderColor = chipBorda,
-                        borderWidth = 1.dp,
-                        selectedBorderWidth = 1.dp
-                    )
-                )
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        // Filtro por status (port web 5d974e1): Todos/Frescos/Atenção/
-        // Vencidos com contadores, combinando com busca + local.
-        // Contadores vêm da lista observada (pós busca+local).
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(FILTROS_STATUS) { (rotulo, status) ->
-                val interChip = remember("status-$rotulo") { MutableInteractionSource() }
-                val sel = filtroStatus == status
-                val qtd = when (status) {
-                    null -> totalBrutos
-                    StatusValidade.FRESCO -> contadores.frescos
-                    StatusValidade.ATENCAO -> contadores.atencao
-                    StatusValidade.VENCIDO -> contadores.vencidos
-                    // Issue #25: ramo morto herdado do Estoque (FILTROS_STATUS
-                    // não tem SEM_VALIDADE) — 0 sem precisar da lista bruta.
-                    StatusValidade.SEM_VALIDADE -> 0
+        // Issue #32: filtro de local em lista suspensa (mesmas 4 opções e
+        // mesmo comportamento dos chips — LOCAIS_FILTRO; só mudou o contêiner).
+        // TalkBack narra o selecionado; light+dark nas cores do tema.
+        var expandirLocal by remember { mutableStateOf(false) }
+        val rotuloLocalSel = rotuloLocalSelecionado(filtroLocal)
+        ExposedDropdownMenuBox(
+            expanded = expandirLocal,
+            onExpandedChange = { expandirLocal = !expandirLocal },
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics {
+                    contentDescription = "Filtro de localização: $rotuloLocalSel. Toque para trocar."
                 }
-                val textoChip = "$rotulo ($qtd)"
-                val chipFundo = if (escuro) CartaoEcom else NeveEcom
-                val chipBorda = if (escuro) BordaNoiteAzul else LinhaAzul
-                FilterChip(
-                    selected = sel,
-                    onClick = { onAlternarStatus(status) },
-                    label = {
-                        Text(
-                            textoChip,
-                            maxLines = 1,
-                            color = if (sel) Color.White else if (escuro) MutedEcom else PetroleoSec
-                        )
-                    },
-                    interactionSource = interChip,
-                    modifier = Modifier
-                        .escalaPress(interChip, calmo)
-                        .semantics {
-                            contentDescription = "Filtrar por status: $rotulo, $qtd itens"
-                        },
-                    shape = CircleShape,
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = TurquesaProfunda,
-                        selectedLabelColor = Color.White,
-                        containerColor = chipFundo
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        enabled = true,
-                        selected = sel,
-                        borderColor = chipBorda,
-                        selectedBorderColor = TurquesaProfunda,
-                        disabledBorderColor = chipBorda,
-                        borderWidth = 1.dp,
-                        selectedBorderWidth = 1.dp
-                    )
+        ) {
+            OutlinedTextField(
+                value = "Localização: $rotuloLocalSel",
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandirLocal) },
+                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    focusedBorderColor = if (escuro) MentaEcom else TurquesaProfunda,
+                    unfocusedBorderColor = if (escuro) BordaNoiteAzul else LinhaAzul
                 )
+            )
+            ExposedDropdownMenu(expanded = expandirLocal, onDismissRequest = { expandirLocal = false }) {
+                LOCAIS_FILTRO.forEach { (rotulo, local) ->
+                    DropdownMenuItem(
+                        text = { Text(rotulo) },
+                        onClick = { expandirLocal = false; onFiltrarLocal(local) },
+                        modifier = Modifier.semantics {
+                            contentDescription = if (local == filtroLocal) "Local $rotulo, selecionado"
+                            else "Filtrar local: $rotulo"
+                        }
+                    )
+                }
             }
         }
+        // Issue #33: fileira de chips de status removida (Todos/Frescos/
+        // Atenção/Vencidos) — decisão do solicitante (12/10): a tela principal
+        // já tem essas funcionalidades (hero/blocos). Regras de filtro
+        // intactas no ViewModel; filtro vindo do hero (#15) segue na faixa
+        // abaixo com Limpar.
         // Faixa do filtro ativo (eco do chip removível web em EstoqueView).
         if (filtroStatus != null) {
             Spacer(Modifier.height(4.dp))
