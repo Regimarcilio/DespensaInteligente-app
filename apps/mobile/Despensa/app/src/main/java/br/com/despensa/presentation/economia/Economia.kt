@@ -82,6 +82,7 @@ import br.com.despensa.presentation.theme.sombraFeira
 import br.com.despensa.presentation.theme.specCalma
 import br.com.despensa.share.BackupJson
 import dagger.hilt.android.lifecycle.HiltViewModel
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -95,6 +96,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import javax.inject.Inject
+
+/** Tag de log defensivo da tela Economia (sem PII — só o fato + exceção). */
+private const val TAG_ECONOMIA = "EconomiaVM"
 
 /** Tela R$ (US07): salvos (CONSUMIDO no mês) vs perdidos (DESCARTADO no mês). */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -128,6 +132,18 @@ class EconomiaViewModel @Inject constructor(
 
     /** Expõe o marco p/ testes de UI/preview (default = mês corrente). */
     fun marcoMes(): Long = marco
+
+    /**
+     * Issue #27: apaga o histórico recente (últimas baixas) com confirmação
+     * da UI. Suspenso + Boolean como o save da #21: a UI só fecha a
+     * confirmação no `true`; `false` mantém o diálogo com msg (nunca
+     * silêncio). Não toca nas queries de cálculo (mês/acumulado seguem as
+     * mesmas fórmulas — os totais apenas refletem as baixas restantes).
+     */
+    suspend fun limparHistorico(): Boolean =
+        runCatching { baixaDao.limparTudo() }
+            .onFailure { e -> Log.e(TAG_ECONOMIA, "limpar historico falhou", e) }
+            .isSuccess
 
     /**
      * Issue #2: exporta estoque + baixas em JSON (puro via [BackupJson]).
@@ -192,6 +208,10 @@ fun EconomiaScreen(vm: EconomiaViewModel = hiltViewModel(), escuro: Boolean = fa
     val escopo = rememberCoroutineScope()
     var statusBackup by remember { mutableStateOf<String?>(null) }
     var confirmarExemplos by remember { mutableStateOf(false) }
+    // Issue #27: confirmação + anti-duplo-toque + erro inline da limpeza.
+    var confirmarLimpeza by remember { mutableStateOf(false) }
+    var limpandoHistorico by remember { mutableStateOf(false) }
+    var erroLimpeza by remember { mutableStateOf<String?>(null) }
     val calmo = lembrarMovimentoReduzido()
 
     // E03 — count-up do hero: inteiros + centavos, mesma spec 800ms.
@@ -398,10 +418,24 @@ fun EconomiaScreen(vm: EconomiaViewModel = hiltViewModel(), escuro: Boolean = fa
             colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(Modifier.padding(12.dp)) {
-                Text(
-                    "Histórico Recente",
-                    style = MaterialTheme.typography.titleMedium
-                )
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text(
+                        "Histórico Recente",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    // Issue #27: limpar o histórico (últimas baixas) com
+                    // confirmação — sem tocar no cálculo de economia/total.
+                    if (historico.isNotEmpty()) {
+                        TextButton(
+                            onClick = { erroLimpeza = null; confirmarLimpeza = true },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Limpar histórico recente"
+                                onClick(label = "Limpar histórico recente", action = null)
+                            }
+                        ) { Text("Limpar") }
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
                 if (historico.isEmpty()) {
                     Text(
@@ -496,6 +530,53 @@ fun EconomiaScreen(vm: EconomiaViewModel = hiltViewModel(), escuro: Boolean = fa
             modifier = Modifier.semantics { onClick(label = "Restaurar alimentos e dados de exemplo", action = null) }
         ) { Text("Restaurar exemplos") }
         Spacer(Modifier.height(24.dp))
+    }
+
+    // Issue #27: confirmação antes de apagar — Cancelar não apaga nada
+    // (AC2); falha mantém o diálogo com msg (nunca silêncio, padrão #21).
+    // Após limpar, o card cai no estado vazio amigável (AC1).
+    if (confirmarLimpeza) {
+        AlertDialog(
+            onDismissRequest = { if (!limpandoHistorico) confirmarLimpeza = false },
+            shape = RoundedCornerShape(28.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text("Limpar histórico recente") },
+            text = {
+                Column {
+                    Text("Apagar as baixas exibidas? Os totais passam a refletir o histórico restante.")
+                    erroLimpeza?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(it, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (limpandoHistorico) return@TextButton
+                        limpandoHistorico = true
+                        erroLimpeza = null
+                        escopo.launch {
+                            val ok = vm.limparHistorico()
+                            limpandoHistorico = false
+                            if (ok) {
+                                confirmarLimpeza = false
+                                avisar("Histórico apagado.")
+                            } else {
+                                erroLimpeza = "Não foi possível apagar. Tente de novo."
+                            }
+                        }
+                    },
+                    enabled = !limpandoHistorico,
+                    modifier = Modifier.semantics {
+                        onClick(label = "Confirmar apagar histórico", action = null)
+                    }
+                ) { Text(if (limpandoHistorico) "Apagando…" else "Apagar", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmarLimpeza = false }) { Text("Cancelar") }
+            }
+        )
     }
 
     if (confirmarExemplos) {
