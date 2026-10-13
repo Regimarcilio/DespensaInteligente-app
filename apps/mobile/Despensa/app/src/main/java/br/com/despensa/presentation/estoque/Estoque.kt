@@ -7,22 +7,16 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,7 +34,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.QrCodeScanner
@@ -54,7 +47,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -79,7 +71,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -119,11 +110,12 @@ import br.com.despensa.presentation.theme.Dur
 import br.com.despensa.presentation.theme.NeveEcom
 import br.com.despensa.presentation.theme.MentaEcom
 import br.com.despensa.presentation.theme.LaranjaEcom
-import br.com.despensa.presentation.theme.TurquesaProfunda
 import br.com.despensa.presentation.theme.escalaPress
 import br.com.despensa.presentation.theme.lembrarMovimentoReduzido
-import br.com.despensa.presentation.theme.sombraFeira
-import br.com.despensa.presentation.theme.specCalma
+import br.com.despensa.domain.numeroInventario
+import br.com.despensa.presentation.inventario.CardInventario
+import br.com.despensa.presentation.inventario.InventarioScreen
+import br.com.despensa.presentation.inventario.InventarioViewModel
 import br.com.despensa.presentation.lista.ListaViewModel
 import br.com.despensa.presentation.scan.FluxoScanCodigo
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -511,6 +503,7 @@ fun emojiLocal(local: LocalEstoque): String = when (local) {
 fun EstoqueScreen(
     vm: EstoqueViewModel = hiltViewModel(),
     vmLista: ListaViewModel = hiltViewModel(),
+    vmInv: InventarioViewModel = hiltViewModel(),
     escuro: Boolean = false
 ) {
     val brutos by vm.itens.collectAsState()
@@ -527,6 +520,17 @@ fun EstoqueScreen(
     // aqui reflete na Lista de Compras sem regra nova.
     val sugestoesLista by vmLista.sugestoes.collectAsState()
     var listarAberto by rememberSaveable { mutableStateOf(false) }
+    // Issue #26: tela de contagem/fechamento (entrada só pelos cards).
+    var inventarioAberto by rememberSaveable { mutableStateOf(false) }
+    val itensInventario by vmInv.itens.collectAsState()
+    val buscaInv by vmInv.busca.collectAsState()
+    val contadosInv by vmInv.contados.collectAsState()
+    val divergenciasInv by vmInv.divergencias.collectAsState()
+    val resumoInv by vmInv.resumo.collectAsState()
+    val seqInv by vmInv.seq.collectAsState()
+    LaunchedEffect(inventarioAberto) {
+        if (inventarioAberto) vmInv.iniciarSessao()
+    }
     // HeroFrescor (§4.2): valor em estoque = mesma soma do subtítulo
     // (MainActivity) — só leitura p/ UI, sem regra nova.
     val valorEstoque = brutos.sumOf {
@@ -552,15 +556,6 @@ fun EstoqueScreen(
             vm.limparErroPersistencia()
         }
     }
-
-    // E06 — FAB: press 0.97 (sem pulse na feira — mantém fabPress).
-    val interFab = remember { MutableInteractionSource() }
-    val fabPressionado by interFab.collectIsPressedAsState()
-    val fabPress by animateFloatAsState(
-        targetValue = if (fabPressionado && !calmo) 0.97f else 1f,
-        animationSpec = specCalma(tween(Dur.P120, easing = FastOutSlowInEasing), calmo),
-        label = "fab-press"
-    )
 
     fun avisar(msg: String) {
         escopo.launch { snackbar.showSnackbar(msg) }
@@ -656,43 +651,36 @@ fun EstoqueScreen(
         )
         return
     }
+    // Issue #26: tela de contagem (T2) + fechamento (T3). O CRUD cria via
+    // DialogoCadastro do Estoque (definido acima, mesma sessão) e remove no
+    // DAO — sem regra nova de estoque/validade.
+    if (inventarioAberto) {
+        InventarioScreen(
+            itens = itensInventario,
+            escuro = escuro,
+            numero = if (seqInv > 0) numeroInventario(seqInv) else "#...",
+            busca = buscaInv,
+            contados = contadosInv,
+            divergencias = divergenciasInv,
+            resumo = resumoInv,
+            onBuscar = vmInv::buscar,
+            onSomar = vmInv::somar,
+            onCriar = { editando = null; dialogoAberto = true },
+            onRemover = { vm.remover(it.id) },
+            onFechar = vmInv::fechar,
+            onVoltarContagem = vmInv::voltarContagem,
+            onSalvar = vmInv::salvar,
+            onVoltar = { vmInv.encerrarSessao(); inventarioAberto = false },
+            vm = vmInv
+        )
+        return
+    }
 
+    // Issue #26: sem FAB solto — a entrada é só pelos cards
+    // (hero/Listar/Inventário, T1). Diálogo segue via "+" do hero.
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
-        containerColor = MaterialTheme.colorScheme.background,
-        floatingActionButton = {
-            // E10 — some (shrink 200ms) quando o diálogo abre.
-            AnimatedVisibility(
-                visible = !dialogoAberto,
-                enter = scaleIn(specCalma(tween(Dur.P200), calmo)) +
-                    fadeIn(specCalma(tween(Dur.P200), calmo)),
-                exit = scaleOut(specCalma(tween(Dur.P200), calmo)) +
-                    fadeOut(specCalma(tween(Dur.P200), calmo)),
-                label = "fab-some"
-            ) {
-                FloatingActionButton(
-                    onClick = { editando = null; dialogoAberto = true },
-                    modifier = Modifier
-                        .size(56.dp)
-                        .sombraFeira(escuro, RoundedCornerShape(16.dp))
-                        .semantics {
-                            contentDescription = "Adicionar item ao estoque"
-                            onClick(label = "Adicionar item ao estoque", action = null)
-                        }
-                        .graphicsLayer(scaleX = fabPress, scaleY = fabPress),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = TurquesaProfunda,
-                    contentColor = Color.White,
-                    interactionSource = interFab
-                ) {
-                    Icon(
-                        Icons.Filled.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
-        }
+        containerColor = MaterialTheme.colorScheme.background
     ) { pad ->
         Column(
             modifier = Modifier
@@ -700,8 +688,9 @@ fun EstoqueScreen(
                 .padding(pad)
                 .padding(horizontal = 16.dp)
         ) {
-            // Issue #25: Estoque = header + hero + card Listar — sem bloco de
+            // Issue #25/#26: Estoque = header + hero + cards — sem bloco de
             // contagem, sem busca/chips (vivem na Listar) e sem lista de itens.
+            // Sem "+" solto: a entrada é só pelos cards (T1).
             // Issue #17: topo com menos espaço morto (12→8dp); respiro mantido.
             Spacer(Modifier.height(8.dp))
             // Issue #16 (reaberta, T1 definitivo): hero + cards vivem DENTRO
@@ -711,8 +700,8 @@ fun EstoqueScreen(
             // borda inferior com 28dp de saída tocável + 16dp de respiro
             // (o "+" nunca invade o seguinte). Bottom 96dp acima da nav.
             // Destino/fluxo Listar (#10/#18) intactos.
-            // Issue #25: só hero + card — itens vivem na Listar.
-            // FIX FAB: 96dp p/ nunca cobrir o 3º contador/cards.
+            // Issue #25: só hero + cards — itens vivem na Listar.
+            // 96dp de bottom p/ o conteúdo nunca colar na nav.
             // Issue #14: weight(1f) — LazyColumn dentro de Column sem peso
             // perde a virtualizacao e mede todos os itens de uma vez
             // (jank/trava com fotos). Com peso, ocupa só o restante e rola.
@@ -737,8 +726,8 @@ fun EstoqueScreen(
                             vm.alternarFiltroStatus(st)
                             listarAberto = true
                         },
-                        // Issue #16 (T1): "+" do hero abre o cadastro —
-                        // mesmo destino do FAB, sem mudar fluxos.
+                        // Issue #16 (T1) + #26: "+" do hero abre o cadastro
+                        // (era o destino do FAB solto, removido — sem mudar fluxos).
                         onAdicionar = { editando = null; dialogoAberto = true }
                     )
                 }
@@ -750,6 +739,17 @@ fun EstoqueScreen(
                         onAbrir = {
                             Log.d(TAG_ESTOQUE, "abrir Listar")
                             listarAberto = true
+                        }
+                    )
+                }
+                // Issue #26 (T1): card "Inventário" no mesmo padrão, com "+".
+                item(key = "inventario") {
+                    CardInventario(
+                        totalItens = brutos.size,
+                        escuro = escuro,
+                        onAbrir = {
+                            Log.d(TAG_ESTOQUE, "abrir Inventario")
+                            inventarioAberto = true
                         }
                     )
                 }
