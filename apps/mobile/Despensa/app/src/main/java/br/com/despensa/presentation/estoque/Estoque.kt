@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WarningAmber
@@ -94,6 +95,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -130,6 +132,10 @@ import br.com.despensa.domain.StatusValidade
 import br.com.despensa.domain.diasParaVencer
 import br.com.despensa.domain.formatarReais
 import br.com.despensa.domain.statusValidade
+import br.com.despensa.data.local.prefs.CatalogoEanPrefs
+import br.com.despensa.domain.chaveLista
+import br.com.despensa.domain.deveMostrarDialogoCadastro
+import br.com.despensa.domain.sugerirNomeCatalogo
 import br.com.despensa.domain.validarCadastro
 import br.com.despensa.domain.valorTotalBaixa
 import br.com.despensa.presentation.theme.AmbarEcom
@@ -158,13 +164,17 @@ import br.com.despensa.presentation.theme.escalaPress
 import br.com.despensa.presentation.theme.lembrarMovimentoReduzido
 import br.com.despensa.presentation.theme.sombraFeira
 import br.com.despensa.presentation.theme.specCalma
+import br.com.despensa.presentation.lista.ListaViewModel
+import br.com.despensa.presentation.scan.FluxoScanCodigo
 import dagger.hilt.android.lifecycle.HiltViewModel
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -221,11 +231,80 @@ fun contarValidade(itens: List<EstoqueEntity>, agora: Long = System.currentTimeM
     return ContadoresValidade(f, a, v)
 }
 
+/** Tag de log defensivo da tela Estoque (issue #14: nunca logar PII/nomes). */
+private const val TAG_ESTOQUE = "EstoqueVM"
+
+/**
+ * Issue #14/#15 (pura, testavel em JVM): aplica o filtro de status em memoria
+ * sobre a lista observada (port do matchStatus web). Null = todos.
+ * Nunca lanca: lista vazia entra e vazia sai (estado vazio amigavel).
+ */
+fun aplicarFiltroStatus(
+    lista: List<EstoqueEntity>,
+    status: StatusValidade?,
+    agora: Long = System.currentTimeMillis()
+): List<EstoqueEntity> {
+    if (status == null) return lista
+    return runCatching {
+        lista.filter { statusValidade(it.validade, agora) == status }
+    }.getOrDefault(emptyList())
+}
+
+/**
+ * Issue #15 (pura, testavel em JVM): toggle do bloco tocado.
+ * Tocar no bloco ativo limpa (null); tocar noutro troca. Sem regra nova —
+ * so o vaivem que a spec §4.2 previa (`vm.filtrarStatus(...)` no toque).
+ */
+fun proximoFiltroStatus(
+    atual: StatusValidade?,
+    tocado: StatusValidade?
+): StatusValidade? = if (atual == tocado) null else tocado
+
+/**
+ * Issue #21 (puro, testável em JVM): monta a entidade validada para o
+ * cadastro ou retorna o erro de validação. O diálogo já valida, mas o
+ * ViewModel revalida por defesa — nenhum insert inválido chega ao DAO.
+ * Nome é aparado aqui (único ponto de trim).
+ */
+fun montarItemCadastro(
+    nome: String,
+    quantidade: Double?,
+    unidade: String,
+    validade: Long?,
+    local: LocalEstoque,
+    precoRef: Double?,
+    fotoPath: String? = null
+): Result<EstoqueEntity> {
+    val erro = validarCadastro(nome, quantidade)
+    if (erro != null) return Result.failure(IllegalArgumentException(erro))
+    return Result.success(
+        EstoqueEntity(
+            nome = nome.trim(),
+            quantidade = quantidade!!,
+            unidade = unidade,
+            validade = validade,
+            local = local,
+            fotoPath = fotoPath,
+            precoRef = precoRef
+        )
+    )
+}
+
+/**
+ * Issue #21 (testável em JVM com DAO fake): persiste o item e devolve o
+ * resultado em vez de engolir a exceção. Antes, o `runCatching` só logava
+ * e o diálogo fechava como se tivesse salvo — sintoma exato da issue
+ * (tocar Salvar e nada aparecer no Estoque).
+ */
+suspend fun persistirItem(dao: EstoqueDao, item: EstoqueEntity): Result<Unit> =
+    runCatching { dao.upsert(item) }
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class EstoqueViewModel @Inject constructor(
     private val dao: EstoqueDao,
-    private val baixaDao: BaixaDao
+    private val baixaDao: BaixaDao,
+    private val catalogoEan: CatalogoEanPrefs
 ) : ViewModel() {
     private val busca = MutableStateFlow("")
     private val filtroLocal = MutableStateFlow<LocalEstoque?>(null)
@@ -235,35 +314,86 @@ class EstoqueViewModel @Inject constructor(
     val filtroAtual: StateFlow<LocalEstoque?> = filtroLocal
     val filtroStatusAtual: StateFlow<StatusValidade?> = filtroStatus
 
+    /**
+     * Issue #9: EAN → nome aprendidos (DataStore, sem migration Room).
+     * Seed curado mora no domínio; aqui só o aprendizado do usuário.
+     */
+    val catalogo: StateFlow<Map<String, String>> =
+        catalogoEan.aprendidos
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /** Issue #9c: lembra o nome digitado para o EAN (próxima leitura sugere). */
+    fun lembrarEan(codigo: String, nome: String) = viewModelScope.launch {
+        catalogoEan.lembrar(codigo, nome)
+    }
+
     // Base observada do DAO (busca + local, sem migration). O filtro de
     // status é aplicado EM MEMÓRIA sobre ela (port do matchStatus web).
+    // Issue #14: queries null-safe separadas (sem bind de null no converter)
+    // + catch defensivo: excecao silenciosa nunca congela a tela — emite
+    // lista vazia e o UI cai no estado vazio amigavel. Log sem PII (só contagem).
     val itens: StateFlow<List<EstoqueEntity>> =
-        combine(busca, filtroLocal) { b, l -> b to l }
-            .flatMapLatest { (b, l) -> dao.observar(b.trim(), l) }
+        combine(busca, filtroLocal) { b, l -> b.trim() to l }
+            .flatMapLatest { (b, l) ->
+                if (l == null) dao.observarTodas(b) else dao.observarPorLocal(b, l)
+            }
+            .catch { e ->
+                Log.e(TAG_ESTOQUE, "observar estoque falhou; emitindo vazio", e)
+                emit(emptyList())
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Semáforo sobre a lista observada (pós busca+local, pré status). */
     @OptIn(ExperimentalCoroutinesApi::class)
     val contadores: StateFlow<ContadoresValidade> =
-        itens.map { contarValidade(it) }
+        itens.map { runCatching { contarValidade(it) }.getOrDefault(ContadoresValidade()) }
+            .catch { e ->
+                Log.e(TAG_ESTOQUE, "contar validade falhou; emitindo zerado", e)
+                emit(ContadoresValidade())
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ContadoresValidade())
 
     /** Lista visível = observada + status em memória (combina os 3 filtros). */
     val itensVisiveis: StateFlow<List<EstoqueEntity>> =
-        combine(itens, filtroStatus) { lista, st ->
-            if (st == null) lista
-            else {
-                val agora = System.currentTimeMillis()
-                lista.filter { statusValidade(it.validade, agora) == st }
+        combine(itens, filtroStatus) { lista, st -> aplicarFiltroStatus(lista, st) }
+            .catch { e ->
+                Log.e(TAG_ESTOQUE, "filtro status falhou; emitindo vazio", e)
+                emit(emptyList())
             }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun buscar(texto: String) { busca.value = texto }
     fun filtrar(local: LocalEstoque?) { filtroLocal.value = local }
     fun filtrarStatus(status: StatusValidade?) { filtroStatus.value = status }
     fun limparFiltroStatus() { filtroStatus.value = null }
 
-    fun salvar(
+    /**
+     * Issue #15 (§4.2): toque no mini-card filtra (toggle) reaproveitando o
+     * filtro existente, sem regra nova. Log sem PII (só o status).
+     */
+    fun alternarFiltroStatus(tocado: StatusValidade?) {
+        val proximo = proximoFiltroStatus(filtroStatus.value, tocado)
+        filtroStatus.value = proximo
+        Log.d(TAG_ESTOQUE, "filtro status alternado")
+    }
+
+    /**
+     * Issue #21: último erro de persistência fora do diálogo (remover/baixa).
+     * O diálogo de cadastro trata a falha inline (fica aberto + msg) via o
+     * Boolean de [salvar]/[salvarEdicao]; aqui só os fluxos sem diálogo usam
+     * este canal + Snackbar. Log sem PII (só o fato, nunca nomes).
+     */
+    private val _erroPersistencia = MutableStateFlow<String?>(null)
+    val erroPersistencia: StateFlow<String?> = _erroPersistencia
+
+    fun limparErroPersistencia() { _erroPersistencia.value = null }
+
+    /**
+     * Issue #21: suspenso + Boolean para o diálogo só fechar no sucesso.
+     * Revalida por defesa ([montarItemCadastro]) e persiste via
+     * [persistirItem] — falha de DAO vira `false` (nunca silêncio).
+     */
+    suspend fun salvar(
         nome: String,
         quantidade: Double,
         unidade: String,
@@ -271,27 +401,32 @@ class EstoqueViewModel @Inject constructor(
         local: LocalEstoque,
         precoRef: Double?,
         fotoPath: String? = null
-    ) = viewModelScope.launch {
-        dao.upsert(
-            EstoqueEntity(
-                nome = nome.trim(),
-                quantidade = quantidade,
-                unidade = unidade,
-                validade = validade,
-                local = local,
-                fotoPath = fotoPath,
-                precoRef = precoRef
-            )
-        )
+    ): Boolean {
+        val item = montarItemCadastro(
+            nome, quantidade, unidade, validade, local, precoRef, fotoPath
+        ).getOrElse { e ->
+            Log.e(TAG_ESTOQUE, "salvar item bloqueado na validacao", e)
+            return false
+        }
+        return persistirItem(dao, item)
+            .onFailure { e -> Log.e(TAG_ESTOQUE, "salvar item falhou", e) }
+            .isSuccess
     }
 
-    fun remover(id: String) = viewModelScope.launch { dao.remover(id) }
+    fun remover(id: String) = viewModelScope.launch {
+        runCatching { dao.remover(id) }
+            .onFailure { e ->
+                Log.e(TAG_ESTOQUE, "remover item falhou", e)
+                _erroPersistencia.value = "Não foi possível remover. Tente de novo."
+            }
+    }
 
     /**
      * Paridade web v2.0 (Editar Item): upsert com o MESMO id/createdAt
      * (REPLACE, sem migração). Regra de validação inalterada.
+     * Issue #21: mesmo contrato de [salvar] (suspenso + Boolean).
      */
-    fun salvarEdicao(
+    suspend fun salvarEdicao(
         original: EstoqueEntity,
         nome: String,
         quantidade: Double,
@@ -300,18 +435,17 @@ class EstoqueViewModel @Inject constructor(
         local: LocalEstoque,
         precoRef: Double?,
         fotoPath: String? = null
-    ) = viewModelScope.launch {
-        dao.upsert(
-            original.copy(
-                nome = nome.trim(),
-                quantidade = quantidade,
-                unidade = unidade,
-                validade = validade,
-                local = local,
-                fotoPath = fotoPath,
-                precoRef = precoRef
-            )
-        )
+    ): Boolean {
+        val base = montarItemCadastro(
+            nome, quantidade, unidade, validade, local, precoRef, fotoPath
+        ).getOrElse { e ->
+            Log.e(TAG_ESTOQUE, "salvar edicao bloqueada na validacao", e)
+            return false
+        }
+        val item = base.copy(id = original.id, createdAt = original.createdAt)
+        return persistirItem(dao, item)
+            .onFailure { e -> Log.e(TAG_ESTOQUE, "salvar edicao falhou", e) }
+            .isSuccess
     }
 
     /**
@@ -320,16 +454,22 @@ class EstoqueViewModel @Inject constructor(
      */
     fun darBaixa(item: EstoqueEntity, motivo: MotivoBaixa, aoFeito: (String) -> Unit) =
         viewModelScope.launch {
-            baixaDao.registrar(
-                BaixaEntity(
-                    nome = item.nome,
-                    quantidade = item.quantidade,
-                    unidade = item.unidade,
-                    valorTotal = valorTotalBaixa(item.quantidade, item.precoRef),
-                    motivo = motivo
+            runCatching {
+                baixaDao.registrar(
+                    BaixaEntity(
+                        nome = item.nome,
+                        quantidade = item.quantidade,
+                        unidade = item.unidade,
+                        valorTotal = valorTotalBaixa(item.quantidade, item.precoRef),
+                        motivo = motivo
+                    )
                 )
-            )
-            dao.remover(item.id)
+                dao.remover(item.id)
+            }.onFailure { e ->
+                Log.e(TAG_ESTOQUE, "dar baixa falhou", e)
+                _erroPersistencia.value = "Não foi possível dar baixa. Tente de novo."
+                return@launch
+            }
             aoFeito(
                 if (motivo == MotivoBaixa.CONSUMIDO) "${item.nome} consumido ✅"
                 else "${item.nome} descartado 🗑️"
@@ -420,13 +560,23 @@ fun emojiLocal(local: LocalEstoque): String = when (local) {
 }
 
 @Composable
-fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = false) {
+fun EstoqueScreen(
+    vm: EstoqueViewModel = hiltViewModel(),
+    vmLista: ListaViewModel = hiltViewModel(),
+    escuro: Boolean = false
+) {
     val brutos by vm.itens.collectAsState()
     val itens by vm.itensVisiveis.collectAsState()
     val busca by vm.buscaAtual.collectAsState()
     val filtro by vm.filtroAtual.collectAsState()
     val filtroStatus by vm.filtroStatusAtual.collectAsState()
     val contadores by vm.contadores.collectAsState()
+    // Issue #9: mapa EAN → nome aprendidos (DataStore) p/ o lookup local.
+    val aprendidos by vm.catalogo.collectAsState()
+    // Issue #10: mesma instancia da aba Lista (owner Activity) — adicionar
+    // aqui reflete na Lista de Compras sem regra nova.
+    val sugestoesLista by vmLista.sugestoes.collectAsState()
+    var listarAberto by rememberSaveable { mutableStateOf(false) }
     // HeroFrescor (§4.2): valor em estoque = mesma soma do subtítulo
     // (MainActivity) — só leitura p/ UI, sem regra nova.
     val valorEstoque = brutos.sumOf {
@@ -435,9 +585,23 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
     var dialogoAberto by remember { mutableStateOf(false) }
     // Paridade web v2.0 (itemEmEdicao): null = novo; não-nulo = editar.
     var editando by remember { mutableStateOf<EstoqueEntity?>(null) }
+    // Issue #3: scanner EAN como overlay sobre o cadastro — o diálogo
+    // segue aberto atrás para receber o nome pré-preenchido (AC1).
+    var escaneando by remember { mutableStateOf(false) }
+    var codigoScan by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val escopo = rememberCoroutineScope()
     val calmo = lembrarMovimentoReduzido()
+    // Issue #21: falhas fora do diálogo (remover/baixa) viram Snackbar;
+    // a falha do cadastro é tratada inline no diálogo (fica aberto + msg).
+    val erroPersistencia by vm.erroPersistencia.collectAsState()
+    LaunchedEffect(erroPersistencia, dialogoAberto) {
+        val msg = erroPersistencia
+        if (msg != null && !dialogoAberto) {
+            snackbar.showSnackbar(msg)
+            vm.limparErroPersistencia()
+        }
+    }
 
     // E08 — janela de primeira coleta (WhileSubscribed): skeleton com shimmer
     // em vez do "Estoque vazio…" enquanto o banco popula. Sem mudar fluxos:
@@ -464,6 +628,80 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
 
     fun avisar(msg: String) {
         escopo.launch { snackbar.showSnackbar(msg) }
+    }
+
+    // Issue #18: cadastro + scanner ANTES do Listar — o CRUD da tela
+    // Listar usa o mesmo DialogoCadastro/fluxo de scan sem perder o Estoque.
+    // Issue #8: diálogo oculto com o scanner aberto (AlertDialog cobre o
+    // preview — z-order de janela própria). Preview fica em tela cheia com a
+    // mira; ao voltar (onCodigoLido/onFechar) o diálogo reaparece limpo.
+    if (deveMostrarDialogoCadastro(dialogoAberto, escaneando)) {
+        DialogoCadastro(
+            onFechar = { dialogoAberto = false; editando = null; codigoScan = null },
+            // Issue #21: suspenso + Boolean — o diálogo só fecha (via
+            // onFechar do sucesso) quando o Room confirma; `false` mantém
+            // o diálogo aberto com a msg inline, sem perder o digitado.
+            onSalvar = suspender@{ nome, qtd, un, val_, local, preco, foto ->
+                val alvo = editando
+                val ok = if (alvo != null) {
+                    vm.salvarEdicao(alvo, nome, qtd, un, val_, local, preco, foto)
+                } else {
+                    vm.salvar(nome, qtd, un, val_, local, preco, foto)
+                }
+                if (!ok) return@suspender false
+                // Issue #9c: EAN escaneado + nome confirmado = aprendizado local
+                // (lembrado na próxima leitura, sem migration, sem rede).
+                val eanLido = codigoScan
+                if (eanLido != null) {
+                    vm.lembrarEan(eanLido, nome)
+                }
+                true
+            },
+            editando = editando,
+            calmo = calmo,
+            escuro = escuro,
+            codigoEscaneado = codigoScan,
+            nomesExistentes = brutos.map { it.nome },
+            catalogoAprendido = aprendidos,
+            onPedirScan = { escaneando = true }
+        )
+    }
+
+    // Issue #3: overlay do scanner (rationale CAMERA + preview ML Kit). Volta
+    // sem código (negou/sem câmera) = cai no manual, sem crash (AC2).
+    if (escaneando) {
+        FluxoScanCodigo(
+            onCodigoLido = { codigoScan = it; escaneando = false },
+            onFechar = { escaneando = false }
+        )
+    }
+    // Issue #10: tela dedicada (nao dialogo, nao overlay) — substitui o
+    // conteudo, sem empilhar telas. Voltar fecha sem perder o Estoque.
+    if (listarAberto) {
+        ListarScreen(
+            itens = brutos,
+            nomesNaLista = sugestoesLista.map { chaveLista(it.nome) }.toSet(),
+            escuro = escuro,
+            onAdicionar = { item ->
+                val entrou = vmLista.adicionarDoEstoque(
+                    item.nome, item.quantidade, item.unidade, item.precoRef
+                )
+                if (entrou) {
+                    Log.d(TAG_ESTOQUE, "item enviado a lista de compras")
+                    avisar("\"${item.nome}\" na Lista de Compras ✅")
+                } else {
+                    avisar("\"${item.nome}\" já está na lista")
+                }
+            },
+            onVoltar = { listarAberto = false },
+            // Issue #18: CRUD reaproveita cadastro/baixa/DAO do Estoque.
+            onCriar = { editando = null; dialogoAberto = true },
+            onEditar = { editando = it; dialogoAberto = true },
+            onConsumir = { vm.darBaixa(it, MotivoBaixa.CONSUMIDO, ::avisar) },
+            onDescartar = { vm.darBaixa(it, MotivoBaixa.DESCARTADO, ::avisar) },
+            onRemover = { vm.remover(it.id) }
+        )
+        return
     }
 
     Scaffold(
@@ -509,7 +747,8 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                 .padding(pad)
                 .padding(horizontal = 16.dp)
         ) {
-            Spacer(Modifier.height(12.dp))
+            // Issue #17: topo com menos espaço morto (12→8dp); respiro mantido.
+            Spacer(Modifier.height(8.dp))
             Text(
                 "${itens.size} ${if (itens.size == 1) "item" else "itens"} no estoque",
                 style = MaterialTheme.typography.titleMedium
@@ -519,7 +758,8 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(Modifier.height(8.dp))
+            // Issue #17: cabeçalho→card mais junto (8→6dp), sem colar.
+            Spacer(Modifier.height(6.dp))
             OutlinedTextField(
                 value = busca,
                 onValueChange = vm::buscar,
@@ -543,7 +783,8 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                     unfocusedBorderColor = if (escuro) BordaNoiteAzul else LinhaAzul
                 )
             )
-            Spacer(Modifier.height(8.dp))
+            // Issue #17: cabeçalho→card mais junto (8→6dp), sem colar.
+            Spacer(Modifier.height(6.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(LOCAIS_FILTRO) { (rotulo, local) ->
                     // E06 — FilterChip pílula com press scale (interactionSource próprio).
@@ -585,7 +826,8 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            // Issue #17: cabeçalho→card mais junto (8→6dp), sem colar.
+            Spacer(Modifier.height(6.dp))
             // Filtro por status (port web 5d974e1): Todos/Frescos/Atenção/
             // Vencidos com contadores, combinando com busca + local.
             // Contadores vêm da lista observada (pós busca+local).
@@ -609,7 +851,7 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                     val chipBorda = if (escuro) BordaNoiteAzul else LinhaAzul
                     FilterChip(
                         selected = sel,
-                        onClick = { vm.filtrarStatus(if (sel) null else status) },
+                        onClick = { vm.alternarFiltroStatus(status) },
                         label = {
                             Text(
                                 textoChip,
@@ -674,8 +916,16 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                 escuro = escuro,
                 calmo = calmo,
                 filtroStatus = filtroStatus,
-                onFiltrarStatus = { st ->
-                    vm.filtrarStatus(if (filtroStatus == st) null else st)
+                onFiltrarStatus = { st -> vm.alternarFiltroStatus(st) }
+            )
+            Spacer(Modifier.height(12.dp))
+            // Issue #10 (spec 11/10): card verde "Listar" + "+" → tela dedicada.
+            CardListar(
+                totalItens = brutos.size,
+                escuro = escuro,
+                onAbrir = {
+                    Log.d(TAG_ESTOQUE, "abrir Listar")
+                    listarAberto = true
                 }
             )
             Spacer(Modifier.height(12.dp))
@@ -735,7 +985,11 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
                 }
             } else {
                 // FIX FAB: 96dp p/ nunca cobrir o 3º contador/cards.
+                // Issue #14: weight(1f) — LazyColumn dentro de Column sem peso
+                // perde a virtualizacao e mede todos os itens de uma vez
+                // (jank/trava com fotos). Com peso, ocupa só o restante e rola.
                 LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
                     contentPadding = PaddingValues(bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -786,24 +1040,7 @@ fun EstoqueScreen(vm: EstoqueViewModel = hiltViewModel(), escuro: Boolean = fals
         }
     }
 
-    if (dialogoAberto) {
-        DialogoCadastro(
-            onFechar = { dialogoAberto = false; editando = null },
-            onSalvar = { nome, qtd, un, val_, local, preco, foto ->
-                val alvo = editando
-                if (alvo != null) {
-                    vm.salvarEdicao(alvo, nome, qtd, un, val_, local, preco, foto)
-                } else {
-                    vm.salvar(nome, qtd, un, val_, local, preco, foto)
-                }
-                editando = null
-                dialogoAberto = false
-            },
-            editando = editando,
-            calmo = calmo,
-            escuro = escuro
-        )
-    }
+
 }
 
 /**
@@ -1159,7 +1396,9 @@ private fun EstoqueCard(
     // Diálogo com a foto ampliada (issue #1): 28dp, foto retangular 24dp.
     if (ampliada && temFoto) {
         val grande = remember(item.fotoPath) {
-            FotoStore.decodificarAmostrado(item.fotoPath!!, 1024)
+            runCatching { FotoStore.decodificarAmostrado(item.fotoPath!!, 1024) }
+                .onFailure { e -> Log.w(TAG_ESTOQUE, "foto ampliada ilegivel", e) }
+                .getOrNull()
         }
         val escuroDialogo = escuro
         AlertDialog(
@@ -1471,8 +1710,14 @@ private fun AvatarEstoque(
     ) {
         // Foto (quando há) dentro do mesmo círculo 52dp, borda de status
         // por cima; toque amplia no diálogo 28dp existente.
+        // Issue #14: decode defensivo — I/O em composicao nunca pode
+        // derrubar a lista; falha vira avatar-letra + log (sem PII).
         val bitmap = if (temFoto) {
-            remember(fotoPath) { FotoStore.decodificarAmostrado(fotoPath!!) }
+            remember(fotoPath) {
+                runCatching { FotoStore.decodificarAmostrado(fotoPath!!) }
+                    .onFailure { e -> Log.w(TAG_ESTOQUE, "foto do card ilegivel; usando letra", e) }
+                    .getOrNull()
+            }
         } else {
             null
         }
@@ -1510,10 +1755,18 @@ private fun formatarQtd(qtd: Double): String =
 @Composable
 private fun DialogoCadastro(
     onFechar: () -> Unit,
-    onSalvar: (nome: String, qtd: Double, unidade: String, validade: Long?, local: LocalEstoque, precoRef: Double?, fotoPath: String?) -> Unit,
+    // Issue #21: suspenso + Boolean — `true` = persistido (fecha);
+    // `false` = falhou (fica aberto + msg inline, sem perder o digitado).
+    onSalvar: suspend (nome: String, qtd: Double, unidade: String, validade: Long?, local: LocalEstoque, precoRef: Double?, fotoPath: String?) -> Boolean,
     editando: EstoqueEntity? = null,
     calmo: Boolean = false,
-    escuro: Boolean = false
+    escuro: Boolean = false,
+    // Issue #3/#9: código lido no scanner + lookup local (memória + seed +
+    // aprendidos DataStore, offline-first, sem migration, sem rede).
+    codigoEscaneado: String? = null,
+    nomesExistentes: List<String> = emptyList(),
+    catalogoAprendido: Map<String, String> = emptyMap(),
+    onPedirScan: () -> Unit = {}
 ) {
     // Paridade web v2.0 (itemEditando): pré-preenche quando editando.
     val editId = editando?.id
@@ -1528,6 +1781,8 @@ private fun DialogoCadastro(
     var fotoPath by remember(editId) { mutableStateOf(editando?.fotoPath) }
     var tirandoFoto by remember { mutableStateOf(false) }
     var erro by remember { mutableStateOf<String?>(null) }
+    // Issue #21: trava o duplo-toque e mostra "Salvando…" até o Room responder.
+    var salvando by remember { mutableStateOf(false) }
     var expandUn by remember { mutableStateOf(false) }
     val contexto = LocalContext.current
     val escopo = rememberCoroutineScope()
@@ -1535,6 +1790,16 @@ private fun DialogoCadastro(
     val interFoto = remember { MutableInteractionSource() }
     val interGaleria = remember { MutableInteractionSource() }
     val campo16 = RoundedCornerShape(16.dp)
+
+    // Issue #3/#9 (AC1): EAN lido pré-preenche o nome via catálogo local
+    // (aprendidos → memória → seed → próprio código); a chave garante 1
+    // aplicação por código — a edição manual posterior é do usuário e, ao
+    // salvar, vira aprendizado (AC 9c).
+    LaunchedEffect(codigoEscaneado) {
+        if (!codigoEscaneado.isNullOrBlank()) {
+            nome = sugerirNomeCatalogo(codigoEscaneado, nomesExistentes, catalogoAprendido)
+        }
+    }
 
     // Issue #1: TakePicture SEM permissão CAMERA — Uri FileProvider p/ o app de câmera.
     var fotoTemp: java.io.File? by remember { mutableStateOf(null) }
@@ -1597,6 +1862,24 @@ private fun DialogoCadastro(
         title = { Text(if (editando != null) "Editar Item" else "Novo Item na Despensa", style = MaterialTheme.typography.titleLarge) },
         text = {
             Column {
+                // Issue #3 (AC1): "Adicionar" → "Escanear código" → nome
+                // pré-preenchido, concluindo o cadastro em 1 toque.
+                OutlinedButton(
+                    onClick = onPedirScan,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            onClick(label = "Escanear código de barras", action = null)
+                        }
+                ) {
+                    Icon(
+                        Icons.Filled.QrCodeScanner,
+                        contentDescription = null
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Escanear código", fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = nome,
                     onValueChange = { nome = it },
@@ -1651,8 +1934,23 @@ private fun DialogoCadastro(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                 )
                 Spacer(Modifier.height(8.dp))
-                // Paridade web v2.0 (Data de Validade + "Sem validade" + atalhos
-                // Hoje/+3/+7/+1 mês/Sem prazo). Só UI: preenche o mesmo campo.
+                // Issue #20: validade SOMENTE via botão DATA (date picker
+                // nativo). Campo read-only (sem digitar), sem atalhos
+                // Hoje/+3/+7/+1 mês. "Sem validade" limpa (manter vazio é
+                // válido — RN-002). Alinhamento/forma intactos (campo16).
+                // dataDaqui/mascaraData seguem como helpers (cobertos por teste).
+                fun abrirPickerValidade() {
+                    val cal = Calendar.getInstance()
+                    DatePickerDialog(
+                        contexto,
+                        { _, ano, mes, dia ->
+                            validadeTxt = "%02d/%02d/%04d".format(dia, mes + 1, ano)
+                        },
+                        cal.get(Calendar.YEAR),
+                        cal.get(Calendar.MONTH),
+                        cal.get(Calendar.DAY_OF_MONTH)
+                    ).show()
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
@@ -1669,43 +1967,29 @@ private fun DialogoCadastro(
                 Spacer(Modifier.height(4.dp))
                 OutlinedTextField(
                     value = validadeTxt,
-                    onValueChange = { validadeTxt = mascaraData(it) },
-                    label = { Text("Validade (dd/MM/yyyy, opcional)") },
-                    modifier = Modifier.fillMaxWidth(),
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = true,
+                    label = { Text("Validade (opcional)") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            contentDescription =
+                                if (validadeTxt.isBlank()) "Validade não definida. Toque em DATA para escolher"
+                                else "Validade $validadeTxt. Toque em DATA para alterar"
+                        },
                     singleLine = true,
                     shape = campo16,
-                    placeholder = { Text("ex 25/12/2026") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    placeholder = { Text("Toque em DATA") },
                     trailingIcon = {
-                        TextButton(onClick = {
-                            val cal = Calendar.getInstance()
-                            DatePickerDialog(
-                                contexto,
-                                { _, ano, mes, dia ->
-                                    validadeTxt = "%02d/%02d/%04d".format(dia, mes + 1, ano)
-                                },
-                                cal.get(Calendar.YEAR),
-                                cal.get(Calendar.MONTH),
-                                cal.get(Calendar.DAY_OF_MONTH)
-                            ).show()
-                        }) { Text("DATA") }
+                        TextButton(
+                            onClick = ::abrirPickerValidade,
+                            modifier = Modifier.semantics {
+                                onClick(label = "Escolher data de validade", action = null)
+                            }
+                        ) { Text("DATA") }
                     }
                 )
-                // Atalhos rápidos (port web aplicarAtalhoValidade): Hoje, +3 e
-                // +7 dias, +1 mês (30d) e Sem prazo (limpa).
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    listOf("Hoje" to 0, "+3 dias" to 3, "+7 dias" to 7, "+1 mês" to 30).forEach { (rotulo, dias) ->
-                        TextButton(onClick = { validadeTxt = dataDaqui(dias) }) {
-                            Text(rotulo, style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                    TextButton(onClick = { validadeTxt = "" }) {
-                        Text("Sem prazo", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
                 Spacer(Modifier.height(8.dp))
                 // Paridade web v2.0 (segmentado "Onde vai guardar?" com emoji,
                 // sem dropdown).
@@ -1736,9 +2020,12 @@ private fun DialogoCadastro(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     val mini = remember(fotoPath) {
-                        fotoPath?.takeIf { FotoStore.fotoExiste(it) }?.let {
-                            FotoStore.decodificarAmostrado(it)
-                        }
+                        runCatching {
+                            fotoPath?.takeIf { FotoStore.fotoExiste(it) }?.let {
+                                FotoStore.decodificarAmostrado(it)
+                            }
+                        }.onFailure { e -> Log.w(TAG_ESTOQUE, "miniatura ilegivel", e) }
+                            .getOrNull()
                     }
                     if (mini != null) {
                         Image(
@@ -1805,6 +2092,7 @@ private fun DialogoCadastro(
         confirmButton = {
             Button(
                 onClick = {
+                    if (salvando) return@Button
                     val qtd = qtdTxt.replace(",", ".").toDoubleOrNull()
                     val erroBase = validarCadastro(nome, qtd)
                     if (erroBase != null) {
@@ -1823,15 +2111,30 @@ private fun DialogoCadastro(
                         erro = "Preço inválido (ex 4,99)"
                         return@Button
                     }
-                    onSalvar(nome, qtd!!, unidade, validade, local, preco, fotoPath)
+                    // Issue #21: aguarda o Room; sucesso fecha (onFechar do
+                    // chamador), falha mostra msg e MANTÉM o digitado.
+                    salvando = true
+                    erro = null
+                    escopo.launch {
+                        val ok = runCatching {
+                            onSalvar(nome, qtd!!, unidade, validade, local, preco, fotoPath)
+                        }.getOrDefault(false)
+                        salvando = false
+                        if (ok) {
+                            onFechar()
+                        } else {
+                            erro = "Não foi possível salvar. Tente de novo."
+                        }
+                    }
                 },
+                enabled = !salvando,
                 interactionSource = interSalvar,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = LaranjaEcom,
                     contentColor = MaterialTheme.colorScheme.onSecondary
                 ),
                 modifier = Modifier.escalaPress(interSalvar, calmo)
-            ) { Text("Salvar Item", fontWeight = FontWeight.Bold) }
+            ) { Text(if (salvando) "Salvando…" else "Salvar Item", fontWeight = FontWeight.Bold) }
         },
         dismissButton = { TextButton(onClick = onFechar) { Text("Cancelar") } }
     )

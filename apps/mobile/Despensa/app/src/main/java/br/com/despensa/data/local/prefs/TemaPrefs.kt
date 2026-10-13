@@ -19,7 +19,9 @@ private val Context.storeTema: DataStore<Preferences> by preferencesDataStore(na
 
 /**
  * Prefs do seletor de tema (§07-paleta-v4 b.3).
- * Default SISTEMA = comportamento pré-v4 (zero surpresa, sem migração).
+ * Issue #22: leitura migra legado SISTEMA → ESCURO ([migrarModoTema]) e o
+ * default de ausente/corrompido é ESCURO — sempre há um tema válido, sem
+ * crash e sem tela sem tema. Sem migration Room (só DataStore).
  */
 @Singleton
 class TemaPrefs @Inject constructor(
@@ -28,8 +30,9 @@ class TemaPrefs @Inject constructor(
     private val chave = stringPreferencesKey(KEY_MODO_TEMA)
 
     val modoTema: Flow<ModoTema> = ctx.storeTema.data.map { prefs ->
-        runCatching { ModoTema.valueOf(prefs[chave] ?: ModoTema.SISTEMA.name) }
-            .getOrDefault(ModoTema.SISTEMA)
+        val bruto = runCatching { ModoTema.valueOf(prefs[chave] ?: ModoTema.ESCURO.name) }
+            .getOrDefault(ModoTema.ESCURO)
+        migrarModoTema(bruto)
     }
 
     suspend fun definir(modo: ModoTema) {

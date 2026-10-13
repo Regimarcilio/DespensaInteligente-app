@@ -7,3 +7,6 @@ app/build/
 keystore.properties
 *.jks
 .DS_Store
+
+# APKs de validação local — nunca commitar (distribuídos via Releases)
+*.apk

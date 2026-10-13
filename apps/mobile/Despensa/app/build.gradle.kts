@@ -15,8 +15,8 @@ android {
         applicationId = "br.com.despensa"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = 3
+        versionName = "2.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {
@@ -58,6 +58,14 @@ dependencies {
     implementation(libs.serialization.json)
     implementation(libs.work.runtime)
     implementation(libs.datastore.preferences)
+    // Issue #3 (S5): scanner EAN via CameraX + ML Kit Barcode (só varejo BR,
+    // offline, sem busca online/sync — OUT explícito da issue).
+    implementation(libs.camera.core)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
+    implementation(libs.camera.mlkit.vision)
+    implementation(libs.mlkit.barcode.scanning)
     ksp(libs.room.compiler)
     ksp(libs.hilt.compiler)
     testImplementation(libs.junit5.api)
