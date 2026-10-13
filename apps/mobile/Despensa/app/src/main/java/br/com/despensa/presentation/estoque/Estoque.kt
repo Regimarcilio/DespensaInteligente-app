@@ -1058,7 +1058,7 @@ private fun formatarQtd(qtd: Double): String =
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DialogoCadastro(
+fun DialogoCadastro(
     onFechar: () -> Unit,
     // Issue #21: suspenso + Boolean — `true` = persistido (fecha);
     // `false` = falhou (fica aberto + msg inline, sem perder o digitado).
@@ -1066,6 +1066,14 @@ private fun DialogoCadastro(
     editando: EstoqueEntity? = null,
     calmo: Boolean = false,
     escuro: Boolean = false,
+    // Issue #36 (reaproveitado, não duplicado): pré-preenchimento p/ o fluxo
+    // Lista → carrinho SEM virar "Editar Item" — com editando == null o título
+    // segue "Novo Item na Despensa" e os campos nascem do prefill. Default
+    // null = contrato #21 intacto nos 3 pontos existentes.
+    prefill: EstoqueEntity? = null,
+    // Issue #36: carrinho passa false (sem overlay de scan na Lista — o
+    // diálogo segue idêntico nos campos nome/qtd/un/preço/validade).
+    mostrarScan: Boolean = true,
     // Issue #3/#9: código lido no scanner + lookup local (memória + seed +
     // aprendidos DataStore, offline-first, sem migration, sem rede).
     codigoEscaneado: String? = null,
@@ -1074,16 +1082,18 @@ private fun DialogoCadastro(
     onPedirScan: () -> Unit = {}
 ) {
     // Paridade web v2.0 (itemEditando): pré-preenche quando editando.
-    val editId = editando?.id
-    var nome by remember(editId) { mutableStateOf(editando?.nome ?: "") }
-    var qtdTxt by remember(editId) { mutableStateOf(editando?.quantidade?.let { formatarQtd(it) } ?: "1") }
-    var unidade by remember(editId) { mutableStateOf(editando?.unidade ?: "un") }
-    var validadeTxt by remember(editId) { mutableStateOf(editando?.validade?.let { epochParaBr(it) } ?: "") }
-    var precoTxt by remember(editId) {
-        mutableStateOf(editando?.precoRef?.let { String.format(Locale("pt", "BR"), "%.2f", it) } ?: "")
+    // Issue #36: prefill (carrinho) pré-preenche SEM virar edição.
+    val base = editando ?: prefill
+    val chaveBase = editando?.id ?: prefill?.id ?: "novo"
+    var nome by remember(chaveBase) { mutableStateOf(base?.nome ?: "") }
+    var qtdTxt by remember(chaveBase) { mutableStateOf(base?.quantidade?.let { formatarQtd(it) } ?: "1") }
+    var unidade by remember(chaveBase) { mutableStateOf(base?.unidade ?: "un") }
+    var validadeTxt by remember(chaveBase) { mutableStateOf(base?.validade?.let { epochParaBr(it) } ?: "") }
+    var precoTxt by remember(chaveBase) {
+        mutableStateOf(base?.precoRef?.let { String.format(Locale("pt", "BR"), "%.2f", it) } ?: "")
     }
-    var local by remember(editId) { mutableStateOf(editando?.local ?: LocalEstoque.DESPENSA) }
-    var fotoPath by remember(editId) { mutableStateOf(editando?.fotoPath) }
+    var local by remember(chaveBase) { mutableStateOf(base?.local ?: LocalEstoque.DESPENSA) }
+    var fotoPath by remember(chaveBase) { mutableStateOf(base?.fotoPath) }
     var tirandoFoto by remember { mutableStateOf(false) }
     var erro by remember { mutableStateOf<String?>(null) }
     // Issue #21: trava o duplo-toque e mostra "Salvando…" até o Room responder.
@@ -1169,6 +1179,8 @@ private fun DialogoCadastro(
             Column {
                 // Issue #3 (AC1): "Adicionar" → "Escanear código" → nome
                 // pré-preenchido, concluindo o cadastro em 1 toque.
+                // Issue #36: fora do Estoque (carrinho) o scan fica oculto.
+                if (mostrarScan) {
                 OutlinedButton(
                     onClick = onPedirScan,
                     modifier = Modifier
@@ -1185,6 +1197,7 @@ private fun DialogoCadastro(
                     Text("Escanear código", fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(8.dp))
+                }
                 OutlinedTextField(
                     value = nome,
                     onValueChange = { nome = it },

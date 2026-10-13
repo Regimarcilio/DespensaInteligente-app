@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
@@ -46,6 +47,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
@@ -70,6 +74,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,11 +96,17 @@ import androidx.lifecycle.viewModelScope
 import br.com.despensa.data.foto.FotoStore
 import br.com.despensa.data.local.dao.BaixaDao
 import br.com.despensa.data.local.dao.EstoqueDao
+import br.com.despensa.data.local.entity.EstoqueEntity
+import br.com.despensa.data.local.entity.LocalEstoque
+import br.com.despensa.domain.ItemCarrinho
 import br.com.despensa.domain.ItemReposicao
 import br.com.despensa.domain.diasParaVencer
 import br.com.despensa.domain.formatarReais
 import br.com.despensa.domain.gerarTexto
+import br.com.despensa.domain.mapearParaEstoque
+import br.com.despensa.domain.mensagemFinalizarCarrinho
 import br.com.despensa.domain.podeAdicionarNaLista
+import br.com.despensa.presentation.estoque.DialogoCadastro
 import br.com.despensa.presentation.theme.Dur
 import br.com.despensa.presentation.theme.EsqueletoCard
 import br.com.despensa.presentation.theme.AmbarEcom
@@ -118,6 +129,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+/** Tag de log defensivo do VM da Lista (issue #36: nunca logar PII/nomes). */
+private const val TAG_LISTA = "ListaVM"
 
 /** Origem da sugestão (US06): o que você consumiu + o que vence em 7 dias + manual. */
 enum class OrigemSugestao { CONSUMO, VALIDADE, MANUAL }
@@ -241,6 +255,83 @@ class ListaViewModel @Inject constructor(
         return true
     }
 
+    // --- Issue #36 (modo supermercado): carrinho em MEMÓRIA (mesmo padrão
+    // da Lista — descartável, sem tabela nova, sem migration). Nasce do
+    // diálogo padrão #21 (via adicionarAoCarrinho) e finaliza no Estoque
+    // via upsert existente (sem regra nova de validade, sem tocar RN-003).
+    private val _carrinho = MutableStateFlow<List<ItemCarrinho>>(emptyList())
+    val carrinho: StateFlow<List<ItemCarrinho>> = _carrinho.asStateFlow()
+
+    val comprados: List<ItemCarrinho> get() = _carrinho.value.filter { it.comprado }
+
+    /**
+     * Issue #36: entra no topo, já marcado como comprado. Vazio/duplicado
+     * recusados ([podeAdicionarNaLista] — mesma regra da Lista). Retorna
+     * true se entrou (contrato Boolean p/ o diálogo #21 fechar só no sucesso).
+     */
+    fun adicionarAoCarrinho(
+        nome: String,
+        quantidade: Double = 1.0,
+        unidade: String = "un",
+        validade: Long? = null,
+        local: LocalEstoque = LocalEstoque.DESPENSA,
+        precoRef: Double? = null,
+        fotoPath: String? = null
+    ): Boolean {
+        if (!podeAdicionarNaLista(_carrinho.value.map { it.nome }, nome)) return false
+        val limpo = nome.trim()
+        val qtd = quantidade.takeIf { it > 0 } ?: 1.0
+        val un = unidade.trim().ifBlank { "un" }
+        _carrinho.value = _carrinho.value + ItemCarrinho(
+            nome = limpo,
+            quantidade = qtd,
+            unidade = un,
+            validade = validade,
+            local = local,
+            precoRef = precoRef?.takeIf { it > 0 },
+            fotoPath = fotoPath,
+            comprado = true
+        )
+        return true
+    }
+
+    fun removerDoCarrinho(id: String) {
+        _carrinho.value = _carrinho.value.filter { it.id != id }
+    }
+
+    fun alternarComprado(id: String) {
+        _carrinho.value = _carrinho.value.map {
+            if (it.id == id) it.copy(comprado = !it.comprado) else it
+        }
+    }
+
+    /**
+     * Issue #36: só os COMPRADOS entram no Estoque (disponíveis) via o
+     * upsert existente — sem regra nova de validade ([mapearParaEstoque]
+     * repassa direto). Log sem PII (só contagem). [aoFeito] p/ Snackbar.
+     */
+    fun finalizarCompra(aoFeito: (String) -> Unit) = viewModelScope.launch {
+        val alvos = _carrinho.value.filter { it.comprado }
+        if (alvos.isEmpty()) {
+            aoFeito("Marque os comprados para finalizar")
+            return@launch
+        }
+        val salvos = mutableListOf<String>()
+        alvos.forEach { item ->
+            runCatching { estoqueDao.upsert(mapearParaEstoque(item)) }
+                .onSuccess { salvos.add(item.id) }
+                .onFailure { Log.e(TAG_LISTA, "finalizar compra falhou", it) }
+        }
+        if (salvos.isNotEmpty()) {
+            val ids = salvos.toSet()
+            _carrinho.value = _carrinho.value.filter { it.id !in ids }
+        }
+        aoFeito(
+            if (salvos.isEmpty()) "Não foi possível salvar. Tente de novo."
+            else mensagemFinalizarCarrinho(salvos.size)
+        )
+    }
+
     /** Paridade web v2.0 (removerItem): tira a sugestão da lista (memória). */
     fun remover(nome: String) {
         _sugestoes.value = _sugestoes.value.filter { it.nome != nome }
@@ -332,6 +423,7 @@ fun descricaoSugestao(s: Sugestao): String = buildString {
 fun ListaScreen(vm: ListaViewModel = hiltViewModel(), escuro: Boolean = false) {
     val sugestoes by vm.sugestoes.collectAsState()
     val texto by vm.texto.collectAsState()
+    val carrinho by vm.carrinho.collectAsState()
     val contexto = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val escopo = rememberCoroutineScope()
@@ -342,6 +434,9 @@ fun ListaScreen(vm: ListaViewModel = hiltViewModel(), escuro: Boolean = false) {
         s.quantidade * unit
     }
     var novoManual by remember { mutableStateOf("") }
+    // Issue #36: tela própria do carrinho (ícone no header) + item em edição.
+    var carrinhoAberto by rememberSaveable { mutableStateOf(false) }
+    var itemParaCarrinho by remember { mutableStateOf<Sugestao?>(null) }
     val calmo = lembrarMovimentoReduzido()
 
     // E08 — mesma janela de primeira coleta do Estoque (memória + Room).
@@ -362,6 +457,23 @@ fun ListaScreen(vm: ListaViewModel = hiltViewModel(), escuro: Boolean = false) {
         snackbarHost = { SnackbarHost(snackbar) },
         containerColor = MaterialTheme.colorScheme.background
     ) { pad ->
+        // Issue #36: tela própria do carrinho (não nova aba, não seção —
+        // mesmo padrão Listar #10/#18: substitui o conteúdo, Voltar fecha
+        // sem perder estado). Snackbar segue no mesmo Scaffold.
+        if (carrinhoAberto) {
+            CarrinhoScreen(
+                itens = carrinho,
+                escuro = escuro,
+                onVoltar = { carrinhoAberto = false },
+                onAlternar = vm::alternarComprado,
+                onRemover = vm::removerDoCarrinho,
+                onFinalizar = {
+                    vm.finalizarCompra { msg ->
+                        escopo.launch { snackbar.showSnackbar(msg) }
+                    }
+                }
+            )
+        } else {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -370,6 +482,14 @@ fun ListaScreen(vm: ListaViewModel = hiltViewModel(), escuro: Boolean = false) {
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // Issue #36: ÍCONE do carrinho no header da Lista (tela própria).
+            item {
+                HeaderListaComCarrinho(
+                    qtdCarrinho = carrinho.size,
+                    onAbrirCarrinho = { carrinhoAberto = true }
+                )
+                Spacer(Modifier.height(8.dp))
+            }
             item {
                 Spacer(Modifier.height(12.dp))
                 // Paridade web v2.0 (card "Reposição Inteligente"): N itens
@@ -508,6 +628,7 @@ fun ListaScreen(vm: ListaViewModel = hiltViewModel(), escuro: Boolean = false) {
                             onMais = { vm.ajustarQtd(s.nome, passo(s.unidade)) },
                             onMenos = { vm.ajustarQtd(s.nome, -passo(s.unidade)) },
                             onRemover = { vm.remover(s.nome) },
+                            onCarrinho = { itemParaCarrinho = s },
                             calmo = calmo,
                             escuro = escuro
                         )
@@ -605,6 +726,72 @@ fun ListaScreen(vm: ListaViewModel = hiltViewModel(), escuro: Boolean = false) {
                 }
             }
         }
+        } // else — tela do carrinho fechada
+        // Issue #36: MESMO diálogo do save #21 (reaproveitado, não
+        // duplicado) — prefill com os dados da sugestão; ao salvar vai para
+        // o CARRINHO (não ao Estoque). Título segue "Novo Item na Despensa";
+        // scan oculto (sem overlay de scan na Lista).
+        itemParaCarrinho?.let { s ->
+            DialogoCadastro(
+                onFechar = { itemParaCarrinho = null },
+                onSalvar = { nome, qtd, un, val_, local, preco, foto ->
+                    val ok = vm.adicionarAoCarrinho(nome, qtd, un, val_, local, preco, foto)
+                    if (ok) {
+                        Log.d(TAG_LISTA, "item enviado ao carrinho")
+                        escopo.launch { snackbar.showSnackbar("\"${nome.trim()}\" no carrinho 🛒") }
+                    }
+                    ok
+                },
+                prefill = EstoqueEntity(
+                    nome = s.nome,
+                    quantidade = s.quantidade,
+                    unidade = s.unidade,
+                    validade = null,
+                    local = LocalEstoque.DESPENSA,
+                    fotoPath = s.fotoPath,
+                    precoRef = s.precoUnit
+                ),
+                calmo = calmo,
+                escuro = escuro,
+                nomesExistentes = carrinho.map { it.nome },
+                mostrarScan = false
+            )
+        }
+    }
+}
+
+/**
+ * Issue #36: header da Lista com o ÍCONE do carrinho (tela própria — não
+ * nova aba, não seção). Badge com a qtd; TalkBack narra o destino.
+ */
+@Composable
+private fun HeaderListaComCarrinho(
+    qtdCarrinho: Int,
+    onAbrirCarrinho: () -> Unit
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "Lista Compras",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.weight(1f)
+        )
+        IconButton(
+            onClick = onAbrirCarrinho,
+            modifier = Modifier.semantics {
+                contentDescription =
+                    "Abrir carrinho, $qtdCarrinho ${if (qtdCarrinho == 1) "item" else "itens"}"
+            }
+        ) {
+            if (qtdCarrinho > 0) {
+                BadgedBox(
+                    badge = { Badge { Text("$qtdCarrinho") } }
+                ) {
+                    Icon(Icons.Filled.ShoppingCart, contentDescription = null)
+                }
+            } else {
+                Icon(Icons.Filled.ShoppingCart, contentDescription = null)
+            }
+        }
     }
 }
 
@@ -621,6 +808,8 @@ private fun SugestaoCard(
     onMais: () -> Unit,
     onMenos: () -> Unit,
     onRemover: () -> Unit,
+    // Issue #36: add ao carrinho (abre a edição padrão #21).
+    onCarrinho: () -> Unit = {},
     calmo: Boolean = false,
     escuro: Boolean = false
 ) {
@@ -784,6 +973,14 @@ private fun SugestaoCard(
                             contentDescription = "Aumentar quantidade de ${sugestao.nome}"
                         }
                 ) { Text("+", fontWeight = FontWeight.Bold) }
+                // Issue #36: add ao carrinho em cada item da Lista.
+                IconButton(onClick = onCarrinho) {
+                    Icon(
+                        Icons.Filled.ShoppingCart,
+                        contentDescription = "Adicionar ${sugestao.nome} ao carrinho",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 // Paridade web v2.0 (lixeira por item).
                 IconButton(onClick = onRemover) {
                     Icon(
