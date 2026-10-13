@@ -250,6 +250,45 @@ fun montarItemCadastro(
 suspend fun persistirItem(dao: EstoqueDao, item: EstoqueEntity): Result<Unit> =
     runCatching { dao.upsert(item) }
 
+/**
+ * Issue #21 (regressão v3.0, pura testável em JVM): resolve os campos de
+ * texto do DialogoCadastro em dados prontos p/ salvar. Centraliza validação
+ * + parse (qtd com vírgula, data dd/MM/yyyy, preço R$) para que os 3 pontos
+ * de chamada (hero/Listar/Inventário) compartilhem o MESMO contrato —
+ * nenhum deles salva sem passar por aqui. O trim segue único em
+ * [montarItemCadastro].
+ */
+sealed interface CadastroResolvido {
+    data class Pronto(
+        val nome: String,
+        val quantidade: Double,
+        val validade: Long?,
+        val precoRef: Double?
+    ) : CadastroResolvido
+    data class Erro(val mensagem: String) : CadastroResolvido
+}
+
+fun resolverCadastroParaSalvar(
+    nome: String,
+    qtdTxt: String,
+    validadeTxt: String,
+    precoTxt: String
+): CadastroResolvido {
+    val qtd = qtdTxt.replace(",", ".").toDoubleOrNull()
+    validarCadastro(nome, qtd)?.let { return CadastroResolvido.Erro(it) }
+    val validade = try {
+        parseDataBr(validadeTxt)
+    } catch (_: Exception) {
+        return CadastroResolvido.Erro("Data inválida (use dd/MM/yyyy)")
+    }
+    val preco = try {
+        parsePrecoBr(precoTxt)
+    } catch (_: Exception) {
+        return CadastroResolvido.Erro("Preço inválido (ex 4,99)")
+    }
+    return CadastroResolvido.Pronto(nome, qtd!!, validade, preco)
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class EstoqueViewModel @Inject constructor(
@@ -586,6 +625,18 @@ fun EstoqueScreen(
                 if (eanLido != null) {
                     vm.lembrarEan(eanLido, nome)
                 }
+                // Issue #21 (regressão v3.0): item criado precisa estar VISÍVEL
+                // em ≤2s nos 3 pontos (hero/Listar/Inventário) — limpa a busca
+                // e os filtros que o esconderiam (Listar filtrada da #25,
+                // busca da contagem da #26). Edição mantém filtros (item já
+                // visível). + confirmação imediata (AC ≤2s).
+                if (alvo == null) {
+                    vm.buscar("")
+                    vm.filtrar(null)
+                    vm.limparFiltroStatus()
+                    vmInv.buscar("")
+                    avisar("\"${nome.trim()}\" salvo ✅")
+                }
                 true
             },
             editando = editando,
@@ -610,6 +661,13 @@ fun EstoqueScreen(
     // conteudo, sem empilhar telas. Voltar fecha sem perder o Estoque.
     // Issue #25: busca + chips vivem na Listar (estado segue no
     // EstoqueViewModel — só mudou de lugar); itens exibidos = filtrados.
+    // Issue #21 (regressão v3.0): Listar/Inventário vivem DENTRO do Scaffold
+    // (mesmo layout, sem padding extra) para o SnackbarHost existir nos 3
+    // pontos — `avisar()` e erros de persistência nunca somem no silêncio.
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { pad ->
     if (listarAberto) {
         ListarScreen(
             itens = visiveis,
@@ -649,12 +707,10 @@ fun EstoqueScreen(
             onDescartar = { vm.darBaixa(it, MotivoBaixa.DESCARTADO, ::avisar) },
             onRemover = { vm.remover(it.id) }
         )
-        return
-    }
     // Issue #26: tela de contagem (T2) + fechamento (T3). O CRUD cria via
     // DialogoCadastro do Estoque (definido acima, mesma sessão) e remove no
     // DAO — sem regra nova de estoque/validade.
-    if (inventarioAberto) {
+    } else if (inventarioAberto) {
         InventarioScreen(
             itens = itensInventario,
             escuro = escuro,
@@ -673,15 +729,9 @@ fun EstoqueScreen(
             onVoltar = { vmInv.encerrarSessao(); inventarioAberto = false },
             vm = vmInv
         )
-        return
-    }
-
-    // Issue #26: sem FAB solto — a entrada é só pelos cards
-    // (hero/Listar/Inventário, T1). Diálogo segue via "+" do hero.
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { pad ->
+    } else {
+        // Issue #26: sem FAB solto — a entrada é só pelos cards
+        // (hero/Listar/Inventário, T1). Diálogo segue via "+" do hero.
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -755,6 +805,7 @@ fun EstoqueScreen(
                 }
             }
         }
+    }
     }
 
 
@@ -1347,31 +1398,24 @@ private fun DialogoCadastro(
             Button(
                 onClick = {
                     if (salvando) return@Button
-                    val qtd = qtdTxt.replace(",", ".").toDoubleOrNull()
-                    val erroBase = validarCadastro(nome, qtd)
-                    if (erroBase != null) {
-                        erro = erroBase
+                    // Issue #21 (regressão v3.0): MESMO contrato nos 3 pontos —
+                    // validação + parse centralizados em resolverCadastroParaSalvar.
+                    val resolvido = resolverCadastroParaSalvar(nome, qtdTxt, validadeTxt, precoTxt)
+                    if (resolvido is CadastroResolvido.Erro) {
+                        erro = resolvido.mensagem
                         return@Button
                     }
-                    val validade = try {
-                        parseDataBr(validadeTxt)
-                    } catch (_: Exception) {
-                        erro = "Data inválida (use dd/MM/yyyy)"
-                        return@Button
-                    }
-                    val preco = try {
-                        parsePrecoBr(precoTxt)
-                    } catch (_: Exception) {
-                        erro = "Preço inválido (ex 4,99)"
-                        return@Button
-                    }
+                    resolvido as CadastroResolvido.Pronto
                     // Issue #21: aguarda o Room; sucesso fecha (onFechar do
                     // chamador), falha mostra msg e MANTÉM o digitado.
                     salvando = true
                     erro = null
                     escopo.launch {
                         val ok = runCatching {
-                            onSalvar(nome, qtd!!, unidade, validade, local, preco, fotoPath)
+                            onSalvar(
+                                resolvido.nome, resolvido.quantidade, unidade,
+                                resolvido.validade, local, resolvido.precoRef, fotoPath
+                            )
                         }.getOrDefault(false)
                         salvando = false
                         if (ok) {
