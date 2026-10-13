@@ -34,6 +34,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -137,6 +141,15 @@ fun mensagemRemocaoListar(nome: String): String =
     "\"${nome.trim()}\" sai do Estoque e da tela Listar. Continuar?"
 
 /**
+ * Issue #32 (puro, testável em JVM): rótulo da suspensa de local a partir
+ * do filtro ativo (mesmas 4 opções dos chips — [LOCAIS_FILTRO]). Null =
+ * Todos; mesmo comportamento de filtro, só mudou o contêiner.
+ */
+fun rotuloLocalSelecionado(filtro: LocalEstoque?): String =
+    LOCAIS_FILTRO.firstOrNull { it.second == filtro }?.first ?: "Todos"
+
+
+/**
  * Nova tela dedicada (não diálogo, não overlay): itens do Estoque em blocos
  * com dados expostos (nome, qtd, local • preço, pílula de validade + data).
  * Cada bloco tem "Adicionar" → entra na Lista de Compras (via MANUAL).
@@ -146,6 +159,7 @@ fun mensagemRemocaoListar(nome: String): String =
  * EstoqueViewModel, só mudou de lugar). Os itens exibidos já vêm filtrados;
  * o hero do Estoque abre esta tela já filtrada (toggle #15 mantido).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListarScreen(
     itens: List<EstoqueEntity>,
@@ -240,45 +254,46 @@ fun ListarScreen(
             )
         )
         Spacer(Modifier.height(6.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(LOCAIS_FILTRO) { (rotulo, local) ->
-                // E06 — FilterChip pílula com press scale (interactionSource próprio).
-                val interChip = remember(rotulo) { MutableInteractionSource() }
-                val sel = filtroLocal == local
-                val chipFundo = if (escuro) CartaoEcom else NeveEcom
-                val chipBorda = if (escuro) BordaNoiteAzul else LinhaAzul
-                FilterChip(
-                    selected = sel,
-                    onClick = { onFiltrarLocal(local) },
-                    label = {
-                        Text(
-                            rotulo,
-                            maxLines = 1,
-                            color = if (sel) Color.White else if (escuro) MutedEcom else PetroleoSec
-                        )
-                    },
-                    interactionSource = interChip,
-                    modifier = Modifier
-                        .escalaPress(interChip, calmo)
-                        .semantics {
-                            contentDescription = "Filtrar local: $rotulo"
-                        },
-                    shape = CircleShape,
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = TurquesaProfunda,
-                        selectedLabelColor = Color.White,
-                        containerColor = chipFundo
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        enabled = true,
-                        selected = sel,
-                        borderColor = chipBorda,
-                        selectedBorderColor = TurquesaProfunda,
-                        disabledBorderColor = chipBorda,
-                        borderWidth = 1.dp,
-                        selectedBorderWidth = 1.dp
-                    )
+        // Issue #32: filtro de local em lista suspensa (mesmas 4 opções e
+        // mesmo comportamento dos chips — LOCAIS_FILTRO; só mudou o contêiner).
+        // TalkBack narra o selecionado; light+dark nas cores do tema.
+        var expandirLocal by remember { mutableStateOf(false) }
+        val rotuloLocalSel = rotuloLocalSelecionado(filtroLocal)
+        ExposedDropdownMenuBox(
+            expanded = expandirLocal,
+            onExpandedChange = { expandirLocal = !expandirLocal },
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics {
+                    contentDescription = "Filtro de localização: $rotuloLocalSel. Toque para trocar."
+                }
+        ) {
+            OutlinedTextField(
+                value = "Localização: $rotuloLocalSel",
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandirLocal) },
+                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    focusedBorderColor = if (escuro) MentaEcom else TurquesaProfunda,
+                    unfocusedBorderColor = if (escuro) BordaNoiteAzul else LinhaAzul
                 )
+            )
+            ExposedDropdownMenu(expanded = expandirLocal, onDismissRequest = { expandirLocal = false }) {
+                LOCAIS_FILTRO.forEach { (rotulo, local) ->
+                    DropdownMenuItem(
+                        text = { Text(rotulo) },
+                        onClick = { expandirLocal = false; onFiltrarLocal(local) },
+                        modifier = Modifier.semantics {
+                            contentDescription = if (local == filtroLocal) "Local $rotulo, selecionado"
+                            else "Filtrar local: $rotulo"
+                        }
+                    )
+                }
             }
         }
         Spacer(Modifier.height(6.dp))
