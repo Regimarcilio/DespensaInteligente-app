@@ -7,27 +7,16 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,57 +30,37 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -100,15 +69,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
@@ -129,7 +94,6 @@ import br.com.despensa.data.local.entity.EstoqueEntity
 import br.com.despensa.data.local.entity.LocalEstoque
 import br.com.despensa.data.local.entity.MotivoBaixa
 import br.com.despensa.domain.StatusValidade
-import br.com.despensa.domain.diasParaVencer
 import br.com.despensa.domain.formatarReais
 import br.com.despensa.domain.statusValidade
 import br.com.despensa.data.local.prefs.CatalogoEanPrefs
@@ -139,38 +103,25 @@ import br.com.despensa.domain.sugerirNomeCatalogo
 import br.com.despensa.domain.validarCadastro
 import br.com.despensa.domain.valorTotalBaixa
 import br.com.despensa.presentation.theme.AmbarEcom
-import br.com.despensa.presentation.theme.Nevoa
-import br.com.despensa.presentation.theme.BordaNoiteAzul
 import br.com.despensa.presentation.theme.PetroleoSec
-import br.com.despensa.presentation.theme.MutedEcom
 import br.com.despensa.presentation.theme.CartaoEcom
 import br.com.despensa.presentation.theme.DisplayFeira
 import br.com.despensa.presentation.theme.Dur
-import br.com.despensa.presentation.theme.EsqueletoCard
-import br.com.despensa.presentation.theme.LinhaAzul
 import br.com.despensa.presentation.theme.NeveEcom
-import br.com.despensa.presentation.theme.NevoaTurquesa
 import br.com.despensa.presentation.theme.MentaEcom
-import br.com.despensa.presentation.theme.RosaQueimadoFundo
-import br.com.despensa.presentation.theme.VermelhoNoite
-import br.com.despensa.presentation.theme.VermelhoQueimado
 import br.com.despensa.presentation.theme.LaranjaEcom
-import br.com.despensa.presentation.theme.LaranjaQueimada
-import br.com.despensa.presentation.theme.TurquesaProfunda
-import br.com.despensa.presentation.theme.atrasoStagger
-import br.com.despensa.presentation.theme.corFundoSelo
-import br.com.despensa.presentation.theme.corTextoSelo
 import br.com.despensa.presentation.theme.escalaPress
 import br.com.despensa.presentation.theme.lembrarMovimentoReduzido
-import br.com.despensa.presentation.theme.sombraFeira
-import br.com.despensa.presentation.theme.specCalma
+import br.com.despensa.domain.numeroInventario
+import br.com.despensa.presentation.inventario.CardInventario
+import br.com.despensa.presentation.inventario.InventarioScreen
+import br.com.despensa.presentation.inventario.InventarioViewModel
 import br.com.despensa.presentation.lista.ListaViewModel
 import br.com.despensa.presentation.scan.FluxoScanCodigo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -298,6 +249,45 @@ fun montarItemCadastro(
  */
 suspend fun persistirItem(dao: EstoqueDao, item: EstoqueEntity): Result<Unit> =
     runCatching { dao.upsert(item) }
+
+/**
+ * Issue #21 (regressão v3.0, pura testável em JVM): resolve os campos de
+ * texto do DialogoCadastro em dados prontos p/ salvar. Centraliza validação
+ * + parse (qtd com vírgula, data dd/MM/yyyy, preço R$) para que os 3 pontos
+ * de chamada (hero/Listar/Inventário) compartilhem o MESMO contrato —
+ * nenhum deles salva sem passar por aqui. O trim segue único em
+ * [montarItemCadastro].
+ */
+sealed interface CadastroResolvido {
+    data class Pronto(
+        val nome: String,
+        val quantidade: Double,
+        val validade: Long?,
+        val precoRef: Double?
+    ) : CadastroResolvido
+    data class Erro(val mensagem: String) : CadastroResolvido
+}
+
+fun resolverCadastroParaSalvar(
+    nome: String,
+    qtdTxt: String,
+    validadeTxt: String,
+    precoTxt: String
+): CadastroResolvido {
+    val qtd = qtdTxt.replace(",", ".").toDoubleOrNull()
+    validarCadastro(nome, qtd)?.let { return CadastroResolvido.Erro(it) }
+    val validade = try {
+        parseDataBr(validadeTxt)
+    } catch (_: Exception) {
+        return CadastroResolvido.Erro("Data inválida (use dd/MM/yyyy)")
+    }
+    val preco = try {
+        parsePrecoBr(precoTxt)
+    } catch (_: Exception) {
+        return CadastroResolvido.Erro("Preço inválido (ex 4,99)")
+    }
+    return CadastroResolvido.Pronto(nome, qtd!!, validade, preco)
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -477,11 +467,6 @@ class EstoqueViewModel @Inject constructor(
         }
 }
 
-private fun formatarData(epoch: Long): String =
-    SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR")).apply {
-        timeZone = TimeZone.getDefault()
-    }.format(Date(epoch))
-
 private fun inicioDoDia(epoch: Long): Long {
     val cal = Calendar.getInstance().apply { timeInMillis = epoch }
     cal.set(Calendar.HOUR_OF_DAY, 0)
@@ -533,12 +518,6 @@ fun mascaraData(digitos: String): String {
     }
 }
 
-private fun rotuloLocal(local: LocalEstoque): String = when (local) {
-    LocalEstoque.GELADEIRA -> "Geladeira"
-    LocalEstoque.FREEZER -> "Freezer"
-    LocalEstoque.DESPENSA -> "Despensa"
-}
-
 /**
  * Port de formatarDiasRestantes (web validade.ts): texto amigável da validade
  * p/ o card. Pura e testada (regras de dia intactas — só o texto).
@@ -563,10 +542,13 @@ fun emojiLocal(local: LocalEstoque): String = when (local) {
 fun EstoqueScreen(
     vm: EstoqueViewModel = hiltViewModel(),
     vmLista: ListaViewModel = hiltViewModel(),
+    vmInv: InventarioViewModel = hiltViewModel(),
     escuro: Boolean = false
 ) {
     val brutos by vm.itens.collectAsState()
-    val itens by vm.itensVisiveis.collectAsState()
+    // Issue #25: visíveis (busca+local+status) alimentam a Listar — o
+    // Estoque não renderiza mais lista.
+    val visiveis by vm.itensVisiveis.collectAsState()
     val busca by vm.buscaAtual.collectAsState()
     val filtro by vm.filtroAtual.collectAsState()
     val filtroStatus by vm.filtroStatusAtual.collectAsState()
@@ -577,6 +559,17 @@ fun EstoqueScreen(
     // aqui reflete na Lista de Compras sem regra nova.
     val sugestoesLista by vmLista.sugestoes.collectAsState()
     var listarAberto by rememberSaveable { mutableStateOf(false) }
+    // Issue #26: tela de contagem/fechamento (entrada só pelos cards).
+    var inventarioAberto by rememberSaveable { mutableStateOf(false) }
+    val itensInventario by vmInv.itens.collectAsState()
+    val buscaInv by vmInv.busca.collectAsState()
+    val contadosInv by vmInv.contados.collectAsState()
+    val divergenciasInv by vmInv.divergencias.collectAsState()
+    val resumoInv by vmInv.resumo.collectAsState()
+    val seqInv by vmInv.seq.collectAsState()
+    LaunchedEffect(inventarioAberto) {
+        if (inventarioAberto) vmInv.iniciarSessao()
+    }
     // HeroFrescor (§4.2): valor em estoque = mesma soma do subtítulo
     // (MainActivity) — só leitura p/ UI, sem regra nova.
     val valorEstoque = brutos.sumOf {
@@ -602,29 +595,6 @@ fun EstoqueScreen(
             vm.limparErroPersistencia()
         }
     }
-
-    // E08 — janela de primeira coleta (WhileSubscribed): skeleton com shimmer
-    // em vez do "Estoque vazio…" enquanto o banco popula. Sem mudar fluxos:
-    // só timing de UI; com banco populado os itens chegam e o skeleton sai.
-    var frio by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) {
-        delay(600)
-        frio = false
-    }
-    val mostrandoSkeleton = frio && itens.isEmpty() && brutos.isEmpty() &&
-        busca.isBlank() && filtro == null && filtroStatus == null
-
-    // E04 — marca ids já animados: scroll de volta não re-anima.
-    val vistos = remember { mutableStateMapOf<String, Boolean>() }
-
-    // E06 — FAB: press 0.97 (sem pulse na feira — mantém fabPress).
-    val interFab = remember { MutableInteractionSource() }
-    val fabPressionado by interFab.collectIsPressedAsState()
-    val fabPress by animateFloatAsState(
-        targetValue = if (fabPressionado && !calmo) 0.97f else 1f,
-        animationSpec = specCalma(tween(Dur.P120, easing = FastOutSlowInEasing), calmo),
-        label = "fab-press"
-    )
 
     fun avisar(msg: String) {
         escopo.launch { snackbar.showSnackbar(msg) }
@@ -655,6 +625,18 @@ fun EstoqueScreen(
                 if (eanLido != null) {
                     vm.lembrarEan(eanLido, nome)
                 }
+                // Issue #21 (regressão v3.0): item criado precisa estar VISÍVEL
+                // em ≤2s nos 3 pontos (hero/Listar/Inventário) — limpa a busca
+                // e os filtros que o esconderiam (Listar filtrada da #25,
+                // busca da contagem da #26). Edição mantém filtros (item já
+                // visível). + confirmação imediata (AC ≤2s).
+                if (alvo == null) {
+                    vm.buscar("")
+                    vm.filtrar(null)
+                    vm.limparFiltroStatus()
+                    vmInv.buscar("")
+                    avisar("\"${nome.trim()}\" salvo ✅")
+                }
                 true
             },
             editando = editando,
@@ -677,11 +659,35 @@ fun EstoqueScreen(
     }
     // Issue #10: tela dedicada (nao dialogo, nao overlay) — substitui o
     // conteudo, sem empilhar telas. Voltar fecha sem perder o Estoque.
+    // Issue #25: busca + chips vivem na Listar (estado segue no
+    // EstoqueViewModel — só mudou de lugar); itens exibidos = filtrados.
+    // Issue #21 (regressão v3.0): Listar/Inventário vivem DENTRO do Scaffold
+    // (mesmo layout, sem padding extra) para o SnackbarHost existir nos 3
+    // pontos — `avisar()` e erros de persistência nunca somem no silêncio.
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { pad ->
     if (listarAberto) {
         ListarScreen(
-            itens = brutos,
+            itens = visiveis,
             nomesNaLista = sugestoesLista.map { chaveLista(it.nome) }.toSet(),
             escuro = escuro,
+            busca = busca,
+            filtroLocal = filtro,
+            filtroStatus = filtroStatus,
+            contadores = contadores,
+            totalBrutos = brutos.size,
+            onBuscar = vm::buscar,
+            onFiltrarLocal = vm::filtrar,
+            onAlternarStatus = vm::alternarFiltroStatus,
+            onLimparStatus = vm::limparFiltroStatus,
+            onLimparFiltros = {
+                vm.buscar("")
+                vm.filtrar(null)
+                vm.limparFiltroStatus()
+            },
+            calmo = calmo,
             onAdicionar = { item ->
                 val entrou = vmLista.adicionarDoEstoque(
                     item.nome, item.quantidade, item.unidade, item.precoRef
@@ -701,740 +707,121 @@ fun EstoqueScreen(
             onDescartar = { vm.darBaixa(it, MotivoBaixa.DESCARTADO, ::avisar) },
             onRemover = { vm.remover(it.id) }
         )
-        return
-    }
-
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
-        containerColor = MaterialTheme.colorScheme.background,
-        floatingActionButton = {
-            // E10 — some (shrink 200ms) quando o diálogo abre.
-            AnimatedVisibility(
-                visible = !dialogoAberto,
-                enter = scaleIn(specCalma(tween(Dur.P200), calmo)) +
-                    fadeIn(specCalma(tween(Dur.P200), calmo)),
-                exit = scaleOut(specCalma(tween(Dur.P200), calmo)) +
-                    fadeOut(specCalma(tween(Dur.P200), calmo)),
-                label = "fab-some"
-            ) {
-                FloatingActionButton(
-                    onClick = { editando = null; dialogoAberto = true },
-                    modifier = Modifier
-                        .size(56.dp)
-                        .sombraFeira(escuro, RoundedCornerShape(16.dp))
-                        .semantics {
-                            contentDescription = "Adicionar item ao estoque"
-                            onClick(label = "Adicionar item ao estoque", action = null)
-                        }
-                        .graphicsLayer(scaleX = fabPress, scaleY = fabPress),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = TurquesaProfunda,
-                    contentColor = Color.White,
-                    interactionSource = interFab
-                ) {
-                    Icon(
-                        Icons.Filled.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
-        }
-    ) { pad ->
+    // Issue #26: tela de contagem (T2) + fechamento (T3). O CRUD cria via
+    // DialogoCadastro do Estoque (definido acima, mesma sessão) e remove no
+    // DAO — sem regra nova de estoque/validade.
+    } else if (inventarioAberto) {
+        InventarioScreen(
+            itens = itensInventario,
+            escuro = escuro,
+            numero = if (seqInv > 0) numeroInventario(seqInv) else "#...",
+            busca = buscaInv,
+            contados = contadosInv,
+            divergencias = divergenciasInv,
+            resumo = resumoInv,
+            onBuscar = vmInv::buscar,
+            onSomar = vmInv::somar,
+            onCriar = { editando = null; dialogoAberto = true },
+            onRemover = { vm.remover(it.id) },
+            onFechar = vmInv::fechar,
+            onVoltarContagem = vmInv::voltarContagem,
+            onSalvar = vmInv::salvar,
+            onVoltar = { vmInv.encerrarSessao(); inventarioAberto = false },
+            vm = vmInv
+        )
+    } else {
+        // Issue #26: sem FAB solto — a entrada é só pelos cards
+        // (hero/Listar/Inventário, T1). Diálogo segue via "+" do hero.
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(pad)
                 .padding(horizontal = 16.dp)
         ) {
+            // Issue #25/#26: Estoque = header + hero + cards — sem bloco de
+            // contagem, sem busca/chips (vivem na Listar) e sem lista de itens.
+            // Sem "+" solto: a entrada é só pelos cards (T1).
             // Issue #17: topo com menos espaço morto (12→8dp); respiro mantido.
             Spacer(Modifier.height(8.dp))
-            Text(
-                "${itens.size} ${if (itens.size == 1) "item" else "itens"} no estoque",
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
-                "Arraste → consumir · ← descartar",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            // Issue #17: cabeçalho→card mais junto (8→6dp), sem colar.
-            Spacer(Modifier.height(6.dp))
-            OutlinedTextField(
-                value = busca,
-                onValueChange = vm::buscar,
-                placeholder = { Text("Buscar no estoque...") },
-                leadingIcon = {
-                    Icon(
-                        Icons.Filled.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Buscar no estoque" },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                    focusedBorderColor = if (escuro) MentaEcom else TurquesaProfunda,
-                    unfocusedBorderColor = if (escuro) BordaNoiteAzul else LinhaAzul
-                )
-            )
-            // Issue #17: cabeçalho→card mais junto (8→6dp), sem colar.
-            Spacer(Modifier.height(6.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(LOCAIS_FILTRO) { (rotulo, local) ->
-                    // E06 — FilterChip pílula com press scale (interactionSource próprio).
-                    val interChip = remember(rotulo) { MutableInteractionSource() }
-                    val sel = filtro == local
-                    val chipFundo = if (escuro) CartaoEcom else NeveEcom
-                    val chipBorda = if (escuro) BordaNoiteAzul else LinhaAzul
-                    FilterChip(
-                        selected = sel,
-                        onClick = { vm.filtrar(local) },
-                        label = {
-                            Text(
-                                rotulo,
-                                maxLines = 1,
-                                color = if (sel) Color.White else if (escuro) MutedEcom else PetroleoSec
-                            )
-                        },
-                        interactionSource = interChip,
-                        modifier = Modifier
-                            .escalaPress(interChip, calmo)
-                            .semantics {
-                                contentDescription = "Filtrar local: $rotulo"
-                            },
-                        shape = CircleShape,
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = TurquesaProfunda,
-                            selectedLabelColor = Color.White,
-                            containerColor = chipFundo
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = sel,
-                            borderColor = chipBorda,
-                            selectedBorderColor = TurquesaProfunda,
-                            disabledBorderColor = chipBorda,
-                            borderWidth = 1.dp,
-                            selectedBorderWidth = 1.dp
-                        )
-                    )
-                }
-            }
-            // Issue #17: cabeçalho→card mais junto (8→6dp), sem colar.
-            Spacer(Modifier.height(6.dp))
-            // Filtro por status (port web 5d974e1): Todos/Frescos/Atenção/
-            // Vencidos com contadores, combinando com busca + local.
-            // Contadores vêm da lista observada (pós busca+local).
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(FILTROS_STATUS) { (rotulo, status) ->
-                    val interChip = remember("status-$rotulo") { MutableInteractionSource() }
-                    val sel = filtroStatus == status
-                    val totalTodos = brutos.size
-                    val qtd = when (status) {
-                        null -> totalTodos
-                        StatusValidade.FRESCO -> contadores.frescos
-                        StatusValidade.ATENCAO -> contadores.atencao
-                        StatusValidade.VENCIDO -> contadores.vencidos
-                        StatusValidade.SEM_VALIDADE -> brutos.count {
-                            statusValidade(it.validade, System.currentTimeMillis()) ==
-                                StatusValidade.SEM_VALIDADE
-                        }
-                    }
-                    val textoChip = "$rotulo ($qtd)"
-                    val chipFundo = if (escuro) CartaoEcom else NeveEcom
-                    val chipBorda = if (escuro) BordaNoiteAzul else LinhaAzul
-                    FilterChip(
-                        selected = sel,
-                        onClick = { vm.alternarFiltroStatus(status) },
-                        label = {
-                            Text(
-                                textoChip,
-                                maxLines = 1,
-                                color = if (sel) Color.White else if (escuro) MutedEcom else PetroleoSec
-                            )
-                        },
-                        interactionSource = interChip,
-                        modifier = Modifier
-                            .escalaPress(interChip, calmo)
-                            .semantics {
-                                contentDescription = "Filtrar por status: $rotulo, $qtd itens"
-                            },
-                        shape = CircleShape,
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = TurquesaProfunda,
-                            selectedLabelColor = Color.White,
-                            containerColor = chipFundo
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = sel,
-                            borderColor = chipBorda,
-                            selectedBorderColor = TurquesaProfunda,
-                            disabledBorderColor = chipBorda,
-                            borderWidth = 1.dp,
-                            selectedBorderWidth = 1.dp
-                        )
-                    )
-                }
-            }
-            // Faixa do filtro ativo (eco do chip removível web em EstoqueView).
-            if (filtroStatus != null) {
-                Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "${itens.size} ${if (itens.size == 1) "item" else "itens"} com filtro " +
-                            when (filtroStatus) {
-                                StatusValidade.FRESCO -> "FRESCOS"
-                                StatusValidade.ATENCAO -> "ATENÇÃO"
-                                StatusValidade.VENCIDO -> "VENCIDOS"
-                                else -> ""
-                            },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = LaranjaEcom,
-                        modifier = Modifier.weight(1f)
-                    )
-                    TextButton(
-                        onClick = vm::limparFiltroStatus,
-                        modifier = Modifier.semantics {
-                            contentDescription = "Limpar filtro de status"
-                        }
-                    ) { Text("Limpar") }
-                }
-            }
-            HeroFrescor(
-                totalItens = brutos.size,
-                valorEstoque = valorEstoque,
-                frescos = contadores.frescos,
-                atencao = contadores.atencao,
-                vencidos = contadores.vencidos,
-                escuro = escuro,
-                calmo = calmo,
-                filtroStatus = filtroStatus,
-                onFiltrarStatus = { st -> vm.alternarFiltroStatus(st) }
-            )
-            Spacer(Modifier.height(12.dp))
-            // Issue #10 (spec 11/10): card verde "Listar" + "+" → tela dedicada.
-            CardListar(
-                totalItens = brutos.size,
-                escuro = escuro,
-                onAbrir = {
-                    Log.d(TAG_ESTOQUE, "abrir Listar")
-                    listarAberto = true
-                }
-            )
-            Spacer(Modifier.height(12.dp))
-            if (mostrandoSkeleton) {
-                // E08 — 3 fantasmas com shimmer (estáticos com calmo).
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    repeat(3) {
-                        EsqueletoCard(calmo = calmo, escuro = escuro, descricao = "Carregando estoque")
-                    }
-                }
-            } else if (itens.isEmpty()) {
-                // Paridade web v2.0 (empty-state EstoqueView): título + texto
-                // condicional + CTA "Adicionar Alimento".
-                Column(modifier = Modifier.padding(vertical = 24.dp)) {
-                    val filtrando = busca.isNotBlank() || filtro != null || filtroStatus != null
-                    Text(
-                        "Nenhum item encontrado",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        when {
-                            busca.isNotBlank() || filtro != null ->
-                                "Tente ajustar os filtros de busca ou localização."
-                            filtroStatus != null ->
-                                "Nenhum item neste status. Toque em Limpar."
-                            else ->
-                                "Sua despensa está vazia. Adicione seu primeiro alimento para começar a controlar validades!"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    if (filtrando) {
-                        TextButton(
-                            onClick = {
-                                vm.buscar("")
-                                vm.filtrar(null)
-                                vm.limparFiltroStatus()
-                            },
-                            modifier = Modifier.semantics {
-                                contentDescription = "Limpar todos os filtros"
-                            }
-                        ) { Text("Limpar filtros") }
-                    } else {
-                        Button(
-                            onClick = {
-                                editando = null
-                                dialogoAberto = true
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = TurquesaProfunda,
-                                contentColor = Color.White
-                            )
-                        ) { Text("Adicionar Alimento", fontWeight = FontWeight.Bold) }
-                    }
-                }
-            } else {
-                // FIX FAB: 96dp p/ nunca cobrir o 3º contador/cards.
-                // Issue #14: weight(1f) — LazyColumn dentro de Column sem peso
-                // perde a virtualizacao e mede todos os itens de uma vez
-                // (jank/trava com fotos). Com peso, ocupa só o restante e rola.
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    contentPadding = PaddingValues(bottom = 96.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    itemsIndexed(itens, key = { _, it -> it.id }) { index, item ->
-                        // E04 — entrada escalonada: fade 220 + slideY it/6 +
-                        // scale 0.96, delay min(index*40, 400). Só 1ª composição.
-                        val primeira = vistos[item.id] != true
-                        val atraso = atrasoStagger(index)
-                        AnimatedVisibility(
-                            visible = true,
-                            enter = if (!primeira || calmo) EnterTransition.None else (
-                                fadeIn(tween(Dur.P200 + 20, delayMillis = atraso)) +
-                                    slideInVertically(
-                                        tween(Dur.P200 + 80, delayMillis = atraso)
-                                    ) { it / 6 } +
-                                    scaleIn(
-                                        initialScale = 0.96f,
-                                        animationSpec = tween(Dur.P200 + 80, delayMillis = atraso)
-                                    )
-                                ),
-                            // Saída de baixa confirmada: fade + encolhe, 200ms.
-                            exit = fadeOut(tween(Dur.P200)) +
-                                shrinkVertically(tween(Dur.P200)),
-                            label = "stagger-$index"
-                        ) {
-                            ItemDeslizavel(
-                                item = item,
-                                onConsumir = { vm.darBaixa(item, MotivoBaixa.CONSUMIDO, ::avisar) },
-                                onDescartar = { vm.darBaixa(item, MotivoBaixa.DESCARTADO, ::avisar) }
-                            ) {
-                                EstoqueCard(
-                                    item = item,
-                                    onConsumir = { vm.darBaixa(item, MotivoBaixa.CONSUMIDO, ::avisar) },
-                                    onDescartar = { vm.darBaixa(item, MotivoBaixa.DESCARTADO, ::avisar) },
-                                    onRemover = { vm.remover(item.id) },
-                                    // Paridade web v2.0 (botão Editar): abre o
-                                    // cadastro preenchido (upsert mesmo id).
-                                    onEditar = { editando = item; dialogoAberto = true },
-                                    calmo = calmo,
-                                    escuro = escuro
-                                )
-                            }
-                        }
-                        LaunchedEffect(item.id) { vistos[item.id] = true }
-                    }
-                }
-            }
-        }
-    }
-
-
-}
-
-/**
- * Swipe de baixa (US05): direita (start→end, TurquesaProfunda + Check) = Consumir;
- * esquerda (end→start, VermelhoQueimado + Delete) = Descartar. Cantos 24dp.
- * P3: HapticFeedback no confirmValueChange (gesto físico, não só visual).
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ItemDeslizavel(
-    item: EstoqueEntity,
-    onConsumir: () -> Unit,
-    onDescartar: () -> Unit,
-    conteudo: @Composable () -> Unit
-) {
-    val haptico = LocalHapticFeedback.current
-    val estado = rememberSwipeToDismissBoxState(
-        confirmValueChange = { direcao ->
-            when (direcao) {
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    haptico.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onConsumir()
-                    true
-                }
-                SwipeToDismissBoxValue.EndToStart -> {
-                    haptico.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onDescartar()
-                    true
-                }
-                SwipeToDismissBoxValue.Settled -> false
-            }
-        }
-    )
-    SwipeToDismissBox(
-        state = estado,
-        backgroundContent = {
-            val direcao = estado.targetValue
-            val paraDireita = direcao == SwipeToDismissBoxValue.StartToEnd
-            val cor = if (paraDireita) TurquesaProfunda else VermelhoQueimado
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(cor, RoundedCornerShape(24.dp))
-                    .padding(horizontal = 16.dp),
-                contentAlignment = if (paraDireita) Alignment.CenterStart else Alignment.CenterEnd
+            // Issue #16 (reaberta, T1 definitivo): hero + cards vivem DENTRO
+            // do LazyColumn como header (medem com altura livre — nunca
+            // espremem, texto nunca corta — image/6.jpg). Mesma gramática
+            // ([FaixaEstoque]/hero): raio 28dp, faixa teal, "+" 56dp sobre a
+            // borda inferior com 28dp de saída tocável + 16dp de respiro
+            // (o "+" nunca invade o seguinte). Bottom 96dp acima da nav.
+            // Destino/fluxo Listar (#10/#18) intactos.
+            // Issue #25: só hero + cards — itens vivem na Listar.
+            // 96dp de bottom p/ o conteúdo nunca colar na nav.
+            // Issue #14: weight(1f) — LazyColumn dentro de Column sem peso
+            // perde a virtualizacao e mede todos os itens de uma vez
+            // (jank/trava com fotos). Com peso, ocupa só o restante e rola.
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentPadding = PaddingValues(top = 2.dp, bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (paraDireita) {
-                        Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White)
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "Consumir ${item.nome}",
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    } else {
-                        Text(
-                            "Descartar ${item.nome}",
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Icon(Icons.Filled.Delete, contentDescription = null, tint = Color.White)
-                    }
-                }
-            }
-        },
-        content = { conteudo() }
-    )
-}
-
-@Composable
-private fun EstoqueCard(
-    item: EstoqueEntity,
-    onConsumir: () -> Unit,
-    onDescartar: () -> Unit,
-    onRemover: () -> Unit,
-    onEditar: () -> Unit,
-    calmo: Boolean = false,
-    escuro: Boolean = false
-) {
-    val agora = System.currentTimeMillis()
-    val status = statusValidade(item.validade, agora)
-    val dias = diasParaVencer(item.validade, agora)
-    val corSelo = corFundoSelo(status, escuro)
-    val tintaSelo = corTextoSelo(status, escuro)
-    var ampliada by remember { mutableStateOf(false) }
-    val temFoto = FotoStore.fotoExiste(item.fotoPath)
-
-    // Borda do card espelha o status (§4.5.1): FRESCO outline/BordaNoiteAzul 1dp;
-    // ATENÇÃO AmbarEcom 55%/40% 1dp; VENCIDO VermelhoQueimado 35%/VermelhoNoite 40% 1.5dp.
-    val bordaCard = when (status) {
-        StatusValidade.FRESCO -> BorderStroke(
-            1.dp,
-            if (escuro) BordaNoiteAzul else MaterialTheme.colorScheme.outline
-        )
-        StatusValidade.ATENCAO -> BorderStroke(
-            1.dp,
-            AmbarEcom.copy(alpha = if (escuro) 0.40f else 0.55f)
-        )
-        StatusValidade.VENCIDO -> BorderStroke(
-            1.5.dp,
-            if (escuro) VermelhoNoite.copy(alpha = 0.40f)
-            else VermelhoQueimado.copy(alpha = 0.35f)
-        )
-        StatusValidade.SEM_VALIDADE -> BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-    }
-
-    val iconeSelo = when (status) {
-        StatusValidade.VENCIDO -> Icons.Filled.Warning
-        StatusValidade.ATENCAO -> Icons.Filled.WarningAmber
-        StatusValidade.FRESCO -> Icons.Filled.CheckCircle
-        StatusValidade.SEM_VALIDADE -> Icons.Filled.Info
-    }
-    val textoAmigavel = formatarValidadeAmigavel(dias)
-    val inicial = item.nome.trim().firstOrNull()?.uppercase() ?: "•"
-
-    // Selo pílula: troca de cor animada 250ms, sem pop, sem rotação, sem glow.
-    val corSticker by androidx.compose.animation.animateColorAsState(
-        targetValue = corSelo,
-        animationSpec = specCalma(tween(Dur.P250, easing = FastOutSlowInEasing), calmo),
-        label = "sticker-cor"
-    )
-
-    // E06 — press scale no avatar com foto (mesmo interactionSource do ampliar).
-    val interAvatar = remember(item.id) { MutableInteractionSource() }
-
-    // §(b) — card 24dp, borda 1dp outline, sombra suave quente + expansão com
-    // spring(300, 0.7). Contenção: nada de glow/blur no item.
-    OutlinedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .sombraFeira(escuro, RoundedCornerShape(24.dp))
-            .animateContentSize(
-                animationSpec = specCalma(
-                    spring(stiffness = 300f, dampingRatio = 0.7f),
-                    calmo
-                )
-            ),
-        shape = RoundedCornerShape(24.dp),
-        border = bordaCard,
-        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Avatar-letra 52dp por status (foto dentro do mesmo círculo
-                // quando há; sem foto: inicial, nunca ícone genérico).
-                AvatarEstoque(
-                    inicial = inicial,
-                    nome = item.nome,
-                    fotoPath = item.fotoPath,
-                    temFoto = temFoto,
-                    status = status,
-                    escuro = escuro,
-                    inter = interAvatar,
-                    calmo = calmo,
-                    onAmpliar = { ampliada = true }
-                )
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    // Linha 1: nome + qtd à direita.
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            item.nome,
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold
-                            ),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "${formatarQtd(item.quantidade)} ${item.unidade}",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (escuro) AmbarEcom else LaranjaQueimada,
-                            maxLines = 1,
-                            modifier = Modifier.semantics {
-                                contentDescription =
-                                    "quantidade ${formatarQtd(item.quantidade)} ${item.unidade}"
-                            }
-                        )
-                    }
-                    // Linha 2: local • preço (string atual, só re-estilizada).
-                    Text(
-                        buildString {
-                            append("${emojiLocal(item.local)} ${rotuloLocal(item.local)}")
-                            val preco = item.precoRef
-                            if (preco != null && preco > 0) {
-                                append(" • R$ ${formatarReais(preco)}/${item.unidade}")
-                            }
+                item(key = "hero") {
+                    HeroFrescor(
+                        totalItens = brutos.size,
+                        valorEstoque = valorEstoque,
+                        frescos = contadores.frescos,
+                        atencao = contadores.atencao,
+                        vencidos = contadores.vencidos,
+                        escuro = escuro,
+                        calmo = calmo,
+                        filtroStatus = filtroStatus,
+                        // Issue #25: toque no bloco abre a Listar já filtrada
+                        // (toggle #15 reaproveitado, sem regra nova).
+                        onFiltrarStatus = { st ->
+                            vm.alternarFiltroStatus(st)
+                            listarAberto = true
                         },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    // Linha 3: pílula amigável + data à direita.
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            color = corSticker,
-                            contentColor = tintaSelo,
-                            shape = CircleShape
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Icon(
-                                    iconeSelo,
-                                    contentDescription = null,
-                                    tint = tintaSelo,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    textoAmigavel,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 11.sp,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                        if (item.validade != null) {
-                            Text(
-                                formatarData(item.validade),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-            }
-            // Linha 4: ações inline (swipe permanece como alternativa gestual;
-            // Snackbar/haptic reaproveitados via onConsumir/onDescartar).
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                val alturaAcao = Modifier.height(36.dp)
-                Button(
-                    onClick = onConsumir,
-                    modifier = alturaAcao
-                        .weight(1f)
-                        .semantics {
-                            onClick(label = "Consumir ${item.nome}", action = null)
-                        },
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (escuro) MentaEcom.copy(alpha = 0.15f)
-                        else NevoaTurquesa,
-                        contentColor = if (escuro) MentaEcom else TurquesaProfunda
-                    )
-                ) {
-                    Icon(
-                        Icons.Filled.Check,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "Consumir",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
+                        // Issue #16 (T1) + #26: "+" do hero abre o cadastro
+                        // (era o destino do FAB solto, removido — sem mudar fluxos).
+                        onAdicionar = { editando = null; dialogoAberto = true }
                     )
                 }
-                Button(
-                    onClick = onDescartar,
-                    modifier = alturaAcao
-                        .weight(1f)
-                        .semantics {
-                            onClick(label = "Descartar ${item.nome}", action = null)
-                        },
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (escuro) VermelhoNoite.copy(alpha = 0.20f)
-                        else RosaQueimadoFundo,
-                        contentColor = if (escuro) VermelhoNoite else VermelhoQueimado
-                    )
-                ) {
-                    Icon(
-                        Icons.Filled.Delete,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "Descartar",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
+                // Issue #10 (spec 11/10): card verde "Listar" + "+" → tela dedicada.
+                item(key = "listar") {
+                    CardListar(
+                        totalItens = brutos.size,
+                        escuro = escuro,
+                        onAbrir = {
+                            Log.d(TAG_ESTOQUE, "abrir Listar")
+                            listarAberto = true
+                        }
                     )
                 }
-                IconButton(
-                    onClick = onEditar,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .semantics {
-                            onClick(label = "Editar ${item.nome}", action = null)
+                // Issue #26 (T1): card "Inventário" no mesmo padrão, com "+".
+                item(key = "inventario") {
+                    CardInventario(
+                        totalItens = brutos.size,
+                        escuro = escuro,
+                        onAbrir = {
+                            Log.d(TAG_ESTOQUE, "abrir Inventario")
+                            inventarioAberto = true
                         }
-                ) {
-                    Icon(
-                        Icons.Filled.Edit,
-                        contentDescription = "Editar ${item.nome}",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                IconButton(
-                    onClick = onRemover,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .semantics {
-                            onClick(label = "Remover ${item.nome} sem baixa", action = null)
-                        }
-                ) {
-                    Icon(
-                        Icons.Filled.Delete,
-                        contentDescription = "Remover ${item.nome} sem baixa",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
         }
     }
-
-    // Diálogo com a foto ampliada (issue #1): 28dp, foto retangular 24dp.
-    if (ampliada && temFoto) {
-        val grande = remember(item.fotoPath) {
-            runCatching { FotoStore.decodificarAmostrado(item.fotoPath!!, 1024) }
-                .onFailure { e -> Log.w(TAG_ESTOQUE, "foto ampliada ilegivel", e) }
-                .getOrNull()
-        }
-        val escuroDialogo = escuro
-        AlertDialog(
-            onDismissRequest = { ampliada = false },
-            shape = RoundedCornerShape(28.dp),
-            containerColor = if (escuroDialogo) CartaoEcom else NeveEcom,
-            title = { Text(item.nome, style = MaterialTheme.typography.titleLarge) },
-            text = {
-                if (grande != null) {
-                    Image(
-                        bitmap = grande.asImageBitmap(),
-                        contentDescription = "Foto ampliada de ${item.nome}",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(24.dp))
-                    )
-                } else {
-                    Text("Não foi possível carregar a foto.")
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = { ampliada = false },
-                    modifier = Modifier.semantics {
-                        onClick(label = "Fechar foto ampliada", action = null)
-                    }
-                ) { Text("Fechar") }
-            }
-        )
     }
+
+
 }
 
 /**
  * Hero de frescor (§4.2, único componente novo): gradiente teal 28dp com
  * eyebrow, título serifado, valor em estoque e 3 contadores que filtram
  * (reaproveitam `filtrarStatus`, sem regra nova). Teal idêntico nos 2 modos.
+ *
+ * Issue #16 (reaberta, T1 `docs/prototipos/inventario-26/T1-estoque.png`):
+ * mesma gramática das faixas ([FundoFaixaEstoque]/[RaioFaixaEstoque]) +
+ * [BotaoMaisSobreposto] na borda inferior (abre o cadastro — mesmo destino
+ * do FAB, sem mudar fluxos). Título/contagem, slogan e EM ESTOQUE+valor em
+ * áreas próprias (sem colisão); respiro inferior 40dp para o "+" nunca
+ * cobrir os contadores nem invadir o card seguinte (image/6.jpg).
  */
 @Composable
 private fun HeroFrescor(
@@ -1446,25 +833,28 @@ private fun HeroFrescor(
     escuro: Boolean,
     calmo: Boolean,
     filtroStatus: StatusValidade?,
-    onFiltrarStatus: (StatusValidade?) -> Unit
+    onFiltrarStatus: (StatusValidade?) -> Unit,
+    onAdicionar: () -> Unit
 ) {
+    // Issue #16 (T1): o Box reserva 28dp abaixo do hero — a metade de
+    // fora do "+" segue tocável e vira respiro até o card seguinte.
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 28.dp)
+    ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(TurquesaProfunda, Color(0xFF0E7C6B))
-                ),
-                RoundedCornerShape(28.dp)
-            )
+            .background(FundoFaixaEstoque, RaioFaixaEstoque)
             .then(
                 if (escuro) Modifier.border(
                     1.dp,
                     MentaEcom.copy(alpha = 0.25f),
-                    RoundedCornerShape(28.dp)
+                    RaioFaixaEstoque
                 ) else Modifier
             )
-            .padding(16.dp)
+            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 40.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -1590,6 +980,16 @@ private fun HeroFrescor(
             )
         }
     }
+    BotaoMaisSobreposto(
+        descricao = "Adicionar item ao estoque",
+        rotuloClique = "Adicionar item ao estoque",
+        onClick = onAdicionar,
+        escuro = escuro,
+        modifier = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(end = 16.dp)
+    )
+    }
 }
 
 /** Mini-card translúcido do hero: toque filtra por status (toggle). */
@@ -1650,101 +1050,6 @@ private fun MiniContador(
             color = Color.White.copy(alpha = 0.70f),
             maxLines = 1
         )
-    }
-}
-
-/** Avatar-letra 52dp por status (§4.5.1): borda 2dp + fundo 16% + inicial 20sp Black. */
-@Composable
-private fun AvatarEstoque(
-    inicial: String,
-    nome: String,
-    fotoPath: String?,
-    temFoto: Boolean,
-    status: StatusValidade,
-    escuro: Boolean,
-    inter: MutableInteractionSource,
-    calmo: Boolean,
-    onAmpliar: () -> Unit
-) {
-    val borda: Color
-    val fundo: Color
-    val letra: Color
-    when (status) {
-        StatusValidade.FRESCO -> {
-            borda = if (escuro) MentaEcom else TurquesaProfunda
-            fundo = if (escuro) MentaEcom.copy(alpha = 0.16f) else NevoaTurquesa
-            letra = borda
-        }
-        StatusValidade.ATENCAO -> {
-            borda = AmbarEcom
-            fundo = if (escuro) AmbarEcom.copy(alpha = 0.20f) else Color(0xFFFFF3D6)
-            letra = if (escuro) AmbarEcom else Color(0xFF8A5A00)
-        }
-        StatusValidade.VENCIDO -> {
-            borda = if (escuro) VermelhoNoite else VermelhoQueimado
-            fundo = if (escuro) VermelhoNoite.copy(alpha = 0.20f) else RosaQueimadoFundo
-            letra = borda
-        }
-        StatusValidade.SEM_VALIDADE -> {
-            borda = if (escuro) MutedEcom else PetroleoSec
-            fundo = if (escuro) CartaoEcom else Nevoa
-            letra = borda
-        }
-    }
-    val rotuloA11y = when (status) {
-        StatusValidade.VENCIDO -> "vencido"
-        StatusValidade.ATENCAO -> "atenção"
-        StatusValidade.FRESCO -> "fresco"
-        StatusValidade.SEM_VALIDADE -> "sem validade"
-    }
-    Box(
-        modifier = Modifier
-            .size(52.dp)
-            .border(2.dp, borda, CircleShape)
-            .clip(CircleShape)
-            .background(fundo, CircleShape)
-            .semantics(mergeDescendants = true) {
-                contentDescription = "Status $rotuloA11y de $nome"
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        // Foto (quando há) dentro do mesmo círculo 52dp, borda de status
-        // por cima; toque amplia no diálogo 28dp existente.
-        // Issue #14: decode defensivo — I/O em composicao nunca pode
-        // derrubar a lista; falha vira avatar-letra + log (sem PII).
-        val bitmap = if (temFoto) {
-            remember(fotoPath) {
-                runCatching { FotoStore.decodificarAmostrado(fotoPath!!) }
-                    .onFailure { e -> Log.w(TAG_ESTOQUE, "foto do card ilegivel; usando letra", e) }
-                    .getOrNull()
-            }
-        } else {
-            null
-        }
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = "Foto de $nome. Toque para ampliar",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(52.dp)
-                    .clip(CircleShape)
-                    .escalaPress(inter, calmo)
-                    .clickable(
-                        interactionSource = inter,
-                        indication = androidx.compose.foundation.LocalIndication.current,
-                        onClickLabel = "Ampliar foto de $nome"
-                    ) { onAmpliar() }
-            )
-        } else {
-            Text(
-                inicial,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Black,
-                color = letra,
-                maxLines = 1
-            )
-        }
     }
 }
 
@@ -2093,31 +1398,24 @@ private fun DialogoCadastro(
             Button(
                 onClick = {
                     if (salvando) return@Button
-                    val qtd = qtdTxt.replace(",", ".").toDoubleOrNull()
-                    val erroBase = validarCadastro(nome, qtd)
-                    if (erroBase != null) {
-                        erro = erroBase
+                    // Issue #21 (regressão v3.0): MESMO contrato nos 3 pontos —
+                    // validação + parse centralizados em resolverCadastroParaSalvar.
+                    val resolvido = resolverCadastroParaSalvar(nome, qtdTxt, validadeTxt, precoTxt)
+                    if (resolvido is CadastroResolvido.Erro) {
+                        erro = resolvido.mensagem
                         return@Button
                     }
-                    val validade = try {
-                        parseDataBr(validadeTxt)
-                    } catch (_: Exception) {
-                        erro = "Data inválida (use dd/MM/yyyy)"
-                        return@Button
-                    }
-                    val preco = try {
-                        parsePrecoBr(precoTxt)
-                    } catch (_: Exception) {
-                        erro = "Preço inválido (ex 4,99)"
-                        return@Button
-                    }
+                    resolvido as CadastroResolvido.Pronto
                     // Issue #21: aguarda o Room; sucesso fecha (onFechar do
                     // chamador), falha mostra msg e MANTÉM o digitado.
                     salvando = true
                     erro = null
                     escopo.launch {
                         val ok = runCatching {
-                            onSalvar(nome, qtd!!, unidade, validade, local, preco, fotoPath)
+                            onSalvar(
+                                resolvido.nome, resolvido.quantidade, unidade,
+                                resolvido.validade, local, resolvido.precoRef, fotoPath
+                            )
                         }.getOrDefault(false)
                         salvando = false
                         if (ok) {
